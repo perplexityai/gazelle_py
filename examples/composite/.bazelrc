@@ -1,0 +1,6 @@
+build --registry=https://bcr.bazel.build
+
+build --show_result=0
+test --test_output=errors
+
+try-import %workspace%/.bazelrc.user

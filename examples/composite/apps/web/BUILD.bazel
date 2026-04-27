@@ -1,0 +1,22 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+py_library(
+    name = "web",
+    srcs = ["server.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//packages/core",
+        "//packages/utils",
+    ],
+)
+
+py_test(
+    name = "web_test",
+    srcs = ["server_test.py"],
+    main = "server_test.py",
+    deps = [
+        ":web",
+        "//packages/core",
+        "//packages/utils",
+    ],
+)
