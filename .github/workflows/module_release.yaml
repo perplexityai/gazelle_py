@@ -1,0 +1,58 @@
+name: module-release
+
+# Releases the `gazelle_py` Bazel module to GitHub Releases and submits it
+# to the Bazel Central Registry via bazel-contrib/publish-to-bcr.
+#
+# Tag scheme: `vX.Y.Z`.
+#
+# The `release` job uses bazel-contrib's reusable release_ruleset workflow,
+# which runs `bazel test //...`, calls `.github/workflows/release_prep.sh` to
+# generate the source tarball + release notes, produces sigstore build
+# provenance for each archive, and creates the GitHub release with the files,
+# notes, and `.intoto.jsonl` attestations attached. publish-to-bcr then reads
+# those attestations as part of the BCR submission.
+#
+# Prerequisites for the BCR submission to succeed:
+#   1. A fork of github.com/bazelbuild/bazel-central-registry under the org
+#      (matches `registry_fork` below).
+#   2. The `bazel-contrib/publish-to-bcr` GitHub App installed on the fork.
+#   3. Repo secret `BCR_PUBLISH_TOKEN` — a classic PAT (fine-grained PATs
+#      cannot open PRs against public repos). See
+#      https://github.com/bazel-contrib/publish-to-bcr#a-note-on-release-automation
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0). Must already exist.'
+        type: string
+        required: true
+
+permissions:
+  attestations: write
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.4.0
+    with:
+      release_files: gazelle_py-*.tar.gz
+      prerelease: false
+      tag_name: ${{ inputs.tag || github.ref_name }}
+
+  publish-to-bcr:
+    needs: release
+    uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v1.2.0
+    with:
+      tag_name: ${{ inputs.tag || github.ref_name }}
+      registry_fork: hermeticbuild/bazel-central-registry
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    secrets:
+      publish_token: ${{ secrets.BCR_PUBLISH_TOKEN }}

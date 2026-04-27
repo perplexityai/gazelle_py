@@ -1,0 +1,57 @@
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
+load(":opt.bzl", "opt_rust_static_library")
+
+# proto_library lives at //proto:import_extractor_proto so that //py/proto can
+# depend on it without loading any rules_rs symbols.
+rust_prost_library(
+    name = "import_extractor_rust_proto",
+    proto = "//proto:import_extractor_proto",
+    visibility = ["//visibility:public"],
+)
+
+_LIB_SRCS = [
+    "src/ffi.rs",
+    "src/lib.rs",
+    "src/py.rs",
+    "src/wire.rs",
+]
+
+_LIB_DEPS = [
+    ":import_extractor_rust_proto",
+    # Use the same prost runtime as rust_prost_library — sharing identical
+    # versions across separate crate.from_cargo invocations isn't enough,
+    # they're distinct repo instances and Rust treats them as different types.
+    "@rules_rs//rs/private/prost:prost_runtime",
+    "@crates//:rustpython-parser",
+    "@crates//:rustpython-ast",
+    "@crates//:rayon",
+]
+
+# rlib variant — used by the unit tests.
+rust_library(
+    name = "import_extractor",
+    srcs = _LIB_SRCS,
+    edition = "2021",
+    visibility = ["//visibility:public"],
+    deps = _LIB_DEPS,
+)
+
+# staticlib variant — linked into the gazelle plugin's go_library via cgo.
+# Provides CcInfo so it can be passed directly as `cdeps` on go_library.
+# opt_rust_static_library is a with_cfg wrapper that pins compilation_mode
+# and the release rustc flags so the staticlib is optimized regardless of
+# the consumer's bazel invocation (see opt.bzl).
+opt_rust_static_library(
+    name = "import_extractor_static",
+    srcs = _LIB_SRCS,
+    edition = "2021",
+    visibility = ["//visibility:public"],
+    deps = _LIB_DEPS,
+)
+
+rust_test(
+    name = "test",
+    crate = ":import_extractor",
+)

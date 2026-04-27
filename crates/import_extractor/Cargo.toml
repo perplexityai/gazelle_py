@@ -1,0 +1,21 @@
+[package]
+name = "import-extractor"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+# staticlib: linked into the gazelle plugin's go_library via cgo.
+# rlib: needed for `cargo test` and the rlib variant in BUILD.bazel.
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# Python parsing (rustpython-parser).
+rustpython-parser = { workspace = true }
+rustpython-ast = { workspace = true }
+
+# Shared
+rayon = { workspace = true }
+prost = { workspace = true }

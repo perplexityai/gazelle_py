@@ -1,0 +1,3 @@
+# Empty package marker so labels like //:go.mod and //:Cargo.lock resolve.
+# Real platform definitions live in //platforms; gazelle plugin in //py;
+# rust crate in //crates/import_extractor.

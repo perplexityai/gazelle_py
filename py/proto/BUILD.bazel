@@ -1,0 +1,11 @@
+load("@rules_go//proto:def.bzl", "go_proto_library")
+
+# Go bindings for the import-extractor wire protocol. The proto_library lives
+# at //proto so that loading it doesn't pull in rules_rs / rules_rust_prost —
+# BCR consumers only need rules_proto + rules_go to build the gazelle plugin.
+go_proto_library(
+    name = "import_extractor_go_proto",
+    importpath = "github.com/hermeticbuild/gazelle_py/py/proto",
+    proto = "//proto:import_extractor_proto",
+    visibility = ["//py:__subpackages__"],
+)

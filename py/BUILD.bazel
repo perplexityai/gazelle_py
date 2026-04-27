@@ -1,0 +1,59 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+# `py` is the gazelle Language. Consumers compose their own gazelle_binary
+# referencing this label, e.g.
+#
+#     gazelle_binary(
+#         name = "gazelle_bin",
+#         languages = ["@gazelle_py//py"],
+#     )
+#
+# That keeps the linked binary surface in the consumer's hands (so multiple
+# gazelle languages can be combined into one binary) while we ship just the
+# language plugin.
+go_library(
+    name = "py",
+    srcs = [
+        "config.go",
+        "configure.go",
+        "fix.go",
+        "generate.go",
+        "import_extractor.go",
+        "imports.go",
+        "kinds.go",
+        "language.go",
+        "parser.go",
+        "resolve.go",
+    ],
+    cgo = True,
+    # Rust import_extractor staticlib linked via cgo. The wrapper in
+    # //crates/import_extractor pins compilation_mode=opt and the release
+    # rustc flags via with_cfg, so consumers get an optimized binary even
+    # when their own bazel invocation runs in fastbuild.
+    cdeps = ["//crates/import_extractor:import_extractor_static"],
+    importpath = "github.com/hermeticbuild/gazelle_py/py",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//py/proto:import_extractor_go_proto",
+        "@gazelle//config",
+        "@gazelle//label",
+        "@gazelle//language",
+        "@gazelle//repo",
+        "@gazelle//resolve",
+        "@gazelle//rule",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "py_test",
+    srcs = [
+        "config_test.go",
+        "generate_test.go",
+        "resolve_test.go",
+    ],
+    embed = [":py"],
+    deps = [
+        "@gazelle//rule",
+    ],
+)

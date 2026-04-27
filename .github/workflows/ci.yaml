@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Emits the platform matrix once. macOS is dropped on pull_request runs
+  # (saves runner minutes) but stays for push to main and the merge queue.
+  matrix:
+    name: matrix
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.set.outputs.platforms }}
+    steps:
+      - id: set
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            echo 'platforms=[{"platform":"linux-x86_64","runner":"ubuntu-latest"}]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'platforms=[{"platform":"linux-x86_64","runner":"ubuntu-latest"},{"platform":"macos-arm64","runner":"macos-latest"}]' >> "$GITHUB_OUTPUT"
+          fi
+
+  bazel-test:
+    needs: matrix
+    name: bazel test (${{ matrix.os.platform }})
+    runs-on: ${{ matrix.os.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.matrix.outputs.platforms) }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}-${{ matrix.os.platform }}
+          repository-cache: true
+
+      - name: bazel test //...
+        run: bazelisk test //...

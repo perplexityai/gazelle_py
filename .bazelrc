@@ -1,0 +1,22 @@
+# Bazel 9: bzlmod is the only mode; WORKSPACE is gone.
+
+build --registry=https://bcr.bazel.build
+
+# Per rules_rs's paved path: pin the host platform on Linux and Windows so
+# rust toolchain resolution can pick the right exec toolchain. macOS doesn't
+# need this. See //platforms:BUILD.bazel for the platform definitions.
+common --enable_platform_specific_config
+common:linux --host_platform=//platforms:local_gnu
+common:windows --host_platform=//platforms:local_windows_msvc
+
+# Quieter output
+build --show_result=0
+test --test_output=errors
+
+# Release builds: opt-level 3, single codegen unit, abort on panic, strip symbols, thin LTO.
+# Keeps the published binary small and matches Cargo's [profile.release] settings.
+build:opt --compilation_mode=opt
+build:opt --@rules_rust//:extra_rustc_flags=-Ccodegen-units=1,-Cpanic=abort,-Cstrip=symbols,-Clto=thin,-Cembed-bitcode=yes
+
+# Local user overrides
+try-import %workspace%/.bazelrc.user

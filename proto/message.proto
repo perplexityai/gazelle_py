@@ -1,0 +1,36 @@
+syntax = "proto3";
+package import_extractor;
+
+message Request {
+  uint32 id = 1;
+  oneof data {
+    PyQueryRequest py_query = 2;
+  }
+}
+
+message Response {
+  uint32 id = 1;
+  oneof data {
+    PyResponseResult py_result = 2;
+    ResponseError error = 4;
+  }
+}
+
+message ResponseError {
+  string message = 1;
+}
+
+// --- Python ---
+
+message PyQueryRequest {
+  repeated string files = 1;
+}
+
+message PyResponseResult {
+  repeated PyImportByFile imports = 1;
+}
+
+message PyImportByFile {
+  string file = 1;
+  repeated string import_paths = 2;
+}
