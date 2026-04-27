@@ -8,14 +8,20 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
-// Imports returns the import specs that a rule provides; gazelle stores these
-// in a reverse index that maps import paths to Bazel labels.
+// Imports is called during the "index" phase for every rule. It returns
+// import paths the rule provides — gazelle stores these in a reverse index
+// that Resolve() queries when picking deps.
 //
-// For a library at //packages/foo, we register the dotted module path
-// derived from the package directory (e.g. "packages.foo"). This lets
-// Resolve() answer queries like `import packages.foo` → //packages/foo.
+// For a library at //packages/foo we register:
+//   - the dotted module path of the package directory ("packages.foo")
+//   - a wildcard ("packages.foo.*") so callers that import a not-yet-indexed
+//     submodule still resolve here
+//   - a per-srcs path for each .py file in the rule
+//     ("packages.foo.bar" for srcs/bar.py)
 //
-// Test rules don't export reusable modules, so they don't appear in the index.
+// Test rules are not indexed: importing into a test target from outside is a
+// rare pattern and generating index specs for tests creates library→test
+// cycles when a library and its tests sit in the same directory.
 func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve.ImportSpec {
 	cfg, _ := c.Exts[languageName].(*pyConfig)
 	if cfg == nil {
@@ -25,13 +31,34 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 	if r.Kind() != cfg.libraryKind {
 		return nil
 	}
+	// `:conftest` library targets exist purely to be picked up by the
+	// conftest-synthesis path in resolve.go — indexing them under the
+	// package's module path would shadow the real library's specs.
+	if r.Name() == "conftest" {
+		return nil
+	}
 
 	pkg := strings.ReplaceAll(f.Pkg, "/", ".")
 	if pkg == "" {
 		return nil
 	}
-	return []resolve.ImportSpec{
+
+	specs := []resolve.ImportSpec{
 		{Lang: languageName, Imp: pkg},
 		{Lang: languageName, Imp: pkg + ".*"},
 	}
+
+	for _, s := range r.AttrStrings("srcs") {
+		if s == "" || s == "__init__.py" {
+			continue
+		}
+		mod := strings.TrimSuffix(s, ".py")
+		mod = strings.ReplaceAll(mod, "/", ".")
+		specs = append(specs, resolve.ImportSpec{
+			Lang: languageName,
+			Imp:  pkg + "." + mod,
+		})
+	}
+
+	return specs
 }

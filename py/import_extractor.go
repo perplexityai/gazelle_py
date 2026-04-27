@@ -29,9 +29,15 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// extractImports sends a batch of file paths and returns parsed imports keyed
-// by file path. Files that fail to parse are silently dropped by the Rust side.
-func extractImports(files []string) (map[string][]string, error) {
+// extractImports sends a batch of file specs through the FFI. Files that fail
+// to parse are silently dropped by the Rust side (the parser does error
+// recovery and emits whatever it could read), so the caller's `len(results)`
+// can be smaller than `len(specs)`.
+func extractImports(specs []FileSpec) ([]FileImports, error) {
+	files := make([]*pb.PyFileSpec, len(specs))
+	for i, s := range specs {
+		files[i] = &pb.PyFileSpec{Path: s.Path, RelPath: s.RelPath}
+	}
 	req := &pb.Request{
 		Data: &pb.Request_PyQuery{
 			PyQuery: &pb.PyQueryRequest{Files: files},
@@ -45,9 +51,24 @@ func extractImports(files []string) (map[string][]string, error) {
 	case *pb.Response_Error:
 		return nil, fmt.Errorf("import-extractor: %s", d.Error.Message)
 	case *pb.Response_PyResult:
-		out := make(map[string][]string, len(d.PyResult.Imports))
-		for _, fi := range d.PyResult.Imports {
-			out[fi.File] = fi.ImportPaths
+		out := make([]FileImports, 0, len(d.PyResult.Results))
+		for _, r := range d.PyResult.Results {
+			modules := make([]ImportStatement, 0, len(r.Modules))
+			for _, m := range r.Modules {
+				modules = append(modules, ImportStatement{
+					ImportPath:       m.Name,
+					From:             m.From,
+					SourceFile:       m.Filepath,
+					LineNumber:       m.Lineno,
+					TypeCheckingOnly: m.TypeCheckingOnly,
+				})
+			}
+			out = append(out, FileImports{
+				FileName: r.FileName,
+				Modules:  modules,
+				Comments: r.Comments,
+				HasMain:  r.HasMain,
+			})
 		}
 		return out, nil
 	default:

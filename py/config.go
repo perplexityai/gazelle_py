@@ -53,6 +53,12 @@ type pyConfig struct {
 
 	// testData is added to every emitted test rule's `data` attr.
 	testData []string
+
+	// manifestPath is the workspace-relative path to a gazelle_python.yaml
+	// file (the same format rules_python_gazelle_plugin reads). Empty means
+	// "no manifest" — the resolver falls back to derivation from
+	// pyproject.toml / requirements.txt.
+	manifestPath string
 }
 
 // newPyConfig returns a config populated with all defaults.

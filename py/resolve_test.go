@@ -41,16 +41,16 @@ func TestPipLabel(t *testing.T) {
 
 func TestParseRequirementLine(t *testing.T) {
 	cases := map[string]string{
-		"requests":                "requests",
-		"requests==2.31.0":        "requests",
-		"requests>=2.31.0":        "requests",
-		"requests[security]":      "requests",
+		"requests":                 "requests",
+		"requests==2.31.0":         "requests",
+		"requests>=2.31.0":         "requests",
+		"requests[security]":       "requests",
 		"requests ; python<'3.10'": "requests",
-		"# comment":               "",
-		"":                        "",
-		"-e .":                    "",
-		"scikit-learn==1.0":       "scikit_learn",
-		"NumPy":                   "numpy",
+		"# comment":                "",
+		"":                         "",
+		"-e .":                     "",
+		"scikit-learn==1.0":        "scikit_learn",
+		"NumPy":                    "numpy",
 	}
 	for in, want := range cases {
 		if got := parseRequirementLine(in); got != want {

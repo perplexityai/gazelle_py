@@ -12,9 +12,10 @@ repository.workspace = true
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-# Python parsing (rustpython-parser).
-rustpython-parser = { workspace = true }
-rustpython-ast = { workspace = true }
+# Python parsing (ruff)
+ruff_python_ast = { workspace = true }
+ruff_python_parser = { workspace = true }
+ruff_text_size = { workspace = true }
 
 # Shared
 rayon = { workspace = true }

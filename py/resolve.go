@@ -3,6 +3,7 @@ package py
 import (
 	"bufio"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -13,67 +14,19 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
-// pythonStdlib: top-level modules shipped with CPython. Imports of these (or
-// their submodules) get no Bazel dep — the interpreter provides them.
-//
-// Sourced from `sys.stdlib_module_names` (Python 3.12). Trimmed to the most
-// common ones; consumers can extend via `# gazelle:resolve py <mod> <label>`
-// to route stdlib-shadowing modules elsewhere.
-var pythonStdlib = map[string]bool{
-	"__future__": true, "_thread": true, "abc": true, "argparse": true,
-	"array": true, "ast": true, "asyncio": true, "atexit": true,
-	"base64": true, "binascii": true, "bisect": true, "builtins": true,
-	"bz2": true, "calendar": true, "cgi": true, "cmath": true, "cmd": true,
-	"code": true, "codecs": true, "collections": true, "colorsys": true,
-	"compileall": true, "concurrent": true, "configparser": true,
-	"contextlib": true, "contextvars": true, "copy": true, "copyreg": true,
-	"csv": true, "ctypes": true, "curses": true, "dataclasses": true,
-	"datetime": true, "dbm": true, "decimal": true, "difflib": true,
-	"dis": true, "doctest": true, "email": true, "encodings": true,
-	"enum": true, "errno": true, "faulthandler": true, "fcntl": true,
-	"filecmp": true, "fileinput": true, "fnmatch": true, "fractions": true,
-	"ftplib": true, "functools": true, "gc": true, "getopt": true,
-	"getpass": true, "gettext": true, "glob": true, "graphlib": true,
-	"grp": true, "gzip": true, "hashlib": true, "heapq": true, "hmac": true,
-	"html": true, "http": true, "imaplib": true, "importlib": true,
-	"inspect": true, "io": true, "ipaddress": true, "itertools": true,
-	"json": true, "keyword": true, "linecache": true, "locale": true,
-	"logging": true, "lzma": true, "mailbox": true, "marshal": true,
-	"math": true, "mimetypes": true, "mmap": true, "multiprocessing": true,
-	"netrc": true, "numbers": true, "operator": true, "optparse": true,
-	"os": true, "pathlib": true, "pdb": true, "pickle": true,
-	"pickletools": true, "pkgutil": true, "platform": true, "plistlib": true,
-	"poplib": true, "posix": true, "posixpath": true, "pprint": true,
-	"profile": true, "pstats": true, "pty": true, "pwd": true, "py_compile": true,
-	"pydoc": true, "queue": true, "quopri": true, "random": true, "re": true,
-	"readline": true, "reprlib": true, "resource": true, "runpy": true,
-	"sched": true, "secrets": true, "select": true, "selectors": true,
-	"shelve": true, "shlex": true, "shutil": true, "signal": true,
-	"site": true, "smtplib": true, "sndhdr": true, "socket": true,
-	"socketserver": true, "sqlite3": true, "ssl": true, "stat": true,
-	"statistics": true, "string": true, "stringprep": true, "struct": true,
-	"subprocess": true, "sunau": true, "symtable": true, "sys": true,
-	"sysconfig": true, "syslog": true, "tabnanny": true, "tarfile": true,
-	"telnetlib": true, "tempfile": true, "termios": true, "textwrap": true,
-	"threading": true, "time": true, "timeit": true, "tkinter": true,
-	"token": true, "tokenize": true, "tomllib": true, "trace": true,
-	"traceback": true, "tracemalloc": true, "tty": true, "turtle": true,
-	"types": true, "typing": true, "unicodedata": true, "unittest": true,
-	"urllib": true, "uu": true, "uuid": true, "venv": true, "warnings": true,
-	"wave": true, "weakref": true, "webbrowser": true, "winreg": true,
-	"winsound": true, "wsgiref": true, "xml": true, "xmlrpc": true,
-	"zipapp": true, "zipfile": true, "zipimport": true, "zlib": true,
-	"zoneinfo": true,
-}
-
-// resolvedDeps holds the two categories we attach to a rule.
-type resolvedDeps struct {
-	internal []string // intra-repo labels
-	external []string // pip labels
-}
+// pythonStdlib is exposed as a package-level alias for stdlibModules so the
+// existing resolve_test.go's TestPythonStdlibCovered keeps working.
+var pythonStdlib = stdlibModules
 
 // Resolve converts ImportData (attached during GenerateRules) into Bazel
 // labels and writes them onto the rule's `deps` attr.
+//
+// Resolution uses a "possible modules" loop: for each import, try
+// progressively shorter dotted prefixes ("a.b.c.d" → "a.b.c" → "a.b" → "a"),
+// and at each level check ALL resolution sources (gazelle:resolve directive,
+// pip manifest, first-party rule index, stdlib) before stepping to a shorter
+// prefix. A single loop avoids the bug where a broad directive at "a.b" would
+// steal an import meant for "a.b.c".
 func (l *pyLang) Resolve(
 	c *config.Config,
 	ix *resolve.RuleIndex,
@@ -93,25 +46,184 @@ func (l *pyLang) Resolve(
 
 	switch r.Kind() {
 	case cfg.libraryKind:
-		resolved := l.resolveImportsToDeps(c, importData.Imports, from, ix, cfg)
-		all := append([]string{}, resolved.external...)
-		all = append(all, resolved.internal...)
+		all := l.resolveImports(c, ix, importData, importData.Imports, from, cfg)
+		all = append(all, importData.IncludeDeps...)
 		setOrDelete(r, "deps", all)
 
 	case cfg.testKind:
 		// Test rules absorb the test imports plus the surrounding library's
 		// imports (the test typically links everything its sibling lib does
-		// plus its own deps). The library itself, when present, becomes a
-		// dep too — added by the user via map_kind/macro or post-edit; the
-		// scaffold leaves that to the consumer to keep behavior conservative.
-		testResolved := l.resolveImportsToDeps(c, importData.TestImports, from, ix, cfg)
-		srcResolved := l.resolveImportsToDeps(c, importData.Imports, from, ix, cfg)
-		all := append([]string{}, testResolved.external...)
-		all = append(all, testResolved.internal...)
-		all = append(all, srcResolved.external...)
-		all = append(all, srcResolved.internal...)
+		// plus its own deps).
+		modules := append([]ImportStatement{}, importData.Imports...)
+		modules = append(modules, importData.TestImports...)
+
+		// Synthesize ancestor conftest imports. Walk from the test's own
+		// directory up to the repo root, and for each ancestor that has a
+		// `conftest.py`, add a synthetic import for its dotted module path.
+		// The normal possible-modules loop then resolves it to whatever
+		// `:conftest` library target indexes that path; if no such target
+		// exists, the import is silently dropped.
+		for _, syn := range conftestImportsFor(c.RepoRoot, from.Pkg) {
+			modules = append(modules, syn)
+		}
+
+		all := l.resolveImports(c, ix, importData, modules, from, cfg)
+		all = append(all, importData.IncludeDeps...)
 		setOrDelete(r, "deps", all)
 	}
+}
+
+// conftestImportsFor walks up from `pkg` (workspace-relative) to the repo root
+// and returns synthetic imports for every ancestor that has a conftest.py.
+// `pytest` discovers these automatically; we mirror that discovery so the
+// resolver can attach a `:conftest` dep when the user has split it out.
+func conftestImportsFor(repoRoot, pkg string) []ImportStatement {
+	var out []ImportStatement
+	cur := pkg
+	for {
+		if cur == "" {
+			break
+		}
+		if _, err := os.Stat(filepath.Join(repoRoot, cur, "conftest.py")); err == nil {
+			module := strings.ReplaceAll(cur, "/", ".") + ".conftest"
+			out = append(out, ImportStatement{
+				ImportPath: module,
+				From:       module,
+				SourceFile: filepath.Join(cur, "conftest.py"),
+			})
+		}
+		cur = filepath.Dir(cur)
+		if cur == "." {
+			cur = ""
+		}
+	}
+	return out
+}
+
+// resolveImports walks each import through the possible-modules loop and
+// returns a flat, sorted, deduped dep list.
+func (l *pyLang) resolveImports(
+	c *config.Config,
+	ix *resolve.RuleIndex,
+	importData ImportData,
+	imports []ImportStatement,
+	from label.Label,
+	cfg *pyConfig,
+) []string {
+	manifest := loadManifestOnce(filepath.Join(c.RepoRoot, cfg.manifestPath))
+	pipRepo := manifest.PipRepoName
+
+	seen := map[string]bool{}
+	out := []string{}
+
+	for _, imp := range imports {
+		path := imp.ImportPath
+		if path == "" || strings.HasPrefix(path, ".") {
+			continue
+		}
+		// `from a.b.conftest import X`: pytest already handles conftest, so
+		// adding it as a Bazel dep would create cycles. Drop it.
+		if strings.HasSuffix(path, ".conftest") || path == "conftest" {
+			// We DO want the synthesized ancestor-conftest imports the test
+			// pipeline added — those have a non-empty SourceFile pointing at
+			// the actual conftest path. For real `from x.conftest import …`
+			// statements, only the ImportPath is set. Differentiate by
+			// matching the SourceFile against a conftest.py file.
+			if !strings.HasSuffix(imp.SourceFile, "conftest.py") {
+				continue
+			}
+		}
+		if isIgnored(path, imp.From, importData.Ignore) {
+			continue
+		}
+
+		dep := l.resolveOne(c, ix, from, path, imp.From, cfg, manifest, pipRepo)
+		if dep == "" {
+			continue
+		}
+		if seen[dep] {
+			continue
+		}
+		seen[dep] = true
+		out = append(out, dep)
+	}
+
+	sort.Strings(out)
+	return out
+}
+
+// resolveOne implements the possible-modules loop for a single import. Returns
+// the resolved dep label, or "" if no resolution applies (stdlib, self-import,
+// or a missing third-party package not declared in pyproject/manifest).
+func (l *pyLang) resolveOne(
+	c *config.Config,
+	ix *resolve.RuleIndex,
+	from label.Label,
+	moduleName string,
+	fromPart string,
+	cfg *pyConfig,
+	manifest *manifestData,
+	pipRepo string,
+) string {
+	parts := strings.Split(moduleName, ".")
+	for i := len(parts); i > 0; i-- {
+		try := strings.Join(parts[:i], ".")
+
+		// 1. gazelle:resolve directive — explicit user override.
+		spec := resolve.ImportSpec{Lang: languageName, Imp: try}
+		if dep, ok := resolve.FindRuleWithOverride(c, spec, languageName); ok {
+			lbl := dep.Rel(from.Repo, from.Pkg).String()
+			if lbl == ":"+from.Name {
+				return ""
+			}
+			return lbl
+		}
+
+		// 2. Pip manifest (gazelle_python.yaml).
+		if dist, ok := manifest.ModulesMapping[try]; ok {
+			repoName := pipRepo
+			if repoName == "" {
+				repoName = parsePipRepo(cfg.pipLinkPattern)
+			}
+			return pipLabelForRepo(cfg.pipLinkPattern, repoName, normalizeDist(dist))
+		}
+
+		// 3. First-party rule index — exact match.
+		if hits := ix.FindRulesByImportWithConfig(c, spec, languageName); len(hits) > 0 {
+			if hits[0].IsSelfImport(from) {
+				return ""
+			}
+			return hits[0].Label.Rel(from.Repo, from.Pkg).String()
+		}
+
+		// 3b. First-party wildcard (e.g. `pkg.*` for "anything under pkg").
+		wild := resolve.ImportSpec{Lang: languageName, Imp: try + ".*"}
+		if hits := ix.FindRulesByImportWithConfig(c, wild, languageName); len(hits) > 0 {
+			if hits[0].IsSelfImport(from) {
+				return ""
+			}
+			return hits[0].Label.Rel(from.Repo, from.Pkg).String()
+		}
+
+		// 4. Stdlib — no dep needed.
+		topLevel := strings.SplitN(try, ".", 2)[0]
+		if isStdlib(topLevel) {
+			return ""
+		}
+	}
+
+	// Nothing matched at any prefix. Optimistically emit a pip label for the
+	// top-level module name unless the user gave us a project-deps file that
+	// excludes it.
+	topLevel := strings.SplitN(moduleName, ".", 2)[0]
+	if isStdlib(topLevel) {
+		return ""
+	}
+	dist := normalizeDist(topLevel)
+	if len(l.packageDeps) > 0 && !l.packageDeps[dist] {
+		return ""
+	}
+	return pipLabel(cfg, dist)
 }
 
 func setOrDelete(r *rule.Rule, attr string, values []string) {
@@ -123,94 +235,9 @@ func setOrDelete(r *rule.Rule, attr string, values []string) {
 	}
 }
 
-// resolveImportsToDeps categorizes each import into internal vs external.
-func (l *pyLang) resolveImportsToDeps(
-	c *config.Config,
-	imports []ImportStatement,
-	from label.Label,
-	ix *resolve.RuleIndex,
-	cfg *pyConfig,
-) resolvedDeps {
-	result := resolvedDeps{}
-	seen := make(map[string]bool)
-
-	for _, imp := range imports {
-		if seen[imp.ImportPath] {
-			continue
-		}
-		seen[imp.ImportPath] = true
-
-		path := imp.ImportPath
-
-		// Relative imports stay within the package; nothing to add. The
-		// extractor encodes `from . import x` / `from .foo import x` with a
-		// leading "." prefix.
-		if strings.HasPrefix(path, ".") {
-			continue
-		}
-
-		// Gazelle's `# gazelle:resolve py <import> <label>` directive wins
-		// over every other resolution path.
-		spec := resolve.ImportSpec{Lang: languageName, Imp: path}
-		if dep, ok := resolve.FindRuleWithOverride(c, spec, languageName); ok {
-			result.external = append(result.external, dep.Rel(from.Repo, from.Pkg).String())
-			continue
-		}
-
-		// Stdlib imports — no Bazel dep needed.
-		topLevel := strings.SplitN(path, ".", 2)[0]
-		if pythonStdlib[topLevel] {
-			continue
-		}
-
-		// Internal package — walk the rule index from longest path to
-		// shortest. `myorg.api.client` will match `myorg.api` then `myorg`.
-		if internalLabel := l.lookupInternal(path, from, ix); internalLabel != "" {
-			result.internal = append(result.internal, internalLabel)
-			continue
-		}
-
-		// PyPI package. We map by top-level distribution name; rules_python's
-		// pip_parse layout makes `@pip//<dist>` resolvable as long as the dep
-		// is in the lockfile. If the user declared deps in pyproject.toml /
-		// requirements.txt we gate emission on packageDeps; otherwise we
-		// emit the label optimistically.
-		distName := normalizeDist(topLevel)
-		if len(l.packageDeps) == 0 || l.packageDeps[distName] {
-			result.external = append(result.external, pipLabel(cfg, distName))
-		}
-	}
-
-	result.internal = deduplicateAndSort(result.internal)
-	result.external = deduplicateAndSort(result.external)
-	return result
-}
-
-// lookupInternal walks the RuleIndex from the longest matching dotted prefix
-// down, returning the first hit. Empty string means no match.
-func (l *pyLang) lookupInternal(importPath string, from label.Label, ix *resolve.RuleIndex) string {
-	parts := strings.Split(importPath, ".")
-	for i := len(parts); i > 0; i-- {
-		test := strings.Join(parts[:i], ".")
-		if found := ix.FindRulesByImportWithConfig(nil, resolve.ImportSpec{Lang: languageName, Imp: test}, languageName); len(found) > 0 {
-			return found[0].Label.Rel(from.Repo, from.Pkg).String()
-		}
-		if found := ix.FindRulesByImportWithConfig(nil, resolve.ImportSpec{Lang: languageName, Imp: test + ".*"}, languageName); len(found) > 0 {
-			return found[0].Label.Rel(from.Repo, from.Pkg).String()
-		}
-	}
-	return ""
-}
-
-// normalizeDist converts a top-level Python module name to its conventional
-// PyPI distribution name. PyPI normalization: lowercase, hyphens and dots
-// become underscores for the lookup but the published label uses underscores
-// (rules_python's pip_parse strips them). We keep underscores here; the
-// mapping covers the simple identity case (most pure-Python packages).
-//
-// Many distributions don't match their import name (e.g. `cv2` ⇄ `opencv-python`,
-// `PIL` ⇄ `Pillow`); for those, callers should add a `# gazelle:resolve py
-// <import> <label>` override or extend pythonImportToDist below.
+// pythonImportToDist maps Python import names to PyPI distribution names for
+// the common cases where they differ. Users add overrides via
+// `# gazelle:resolve py <import> <label>` or by extending gazelle_python.yaml.
 var pythonImportToDist = map[string]string{
 	"cv2":      "opencv_python",
 	"PIL":      "pillow",
@@ -221,16 +248,53 @@ var pythonImportToDist = map[string]string{
 	"dateutil": "python_dateutil",
 }
 
-func normalizeDist(modName string) string {
-	if d, ok := pythonImportToDist[modName]; ok {
-		return d
+// normalizeDist converts a top-level Python module name to its conventional
+// PyPI distribution name (PEP 503 normalization: lowercase, hyphens/dots →
+// underscores).
+func normalizeDist(name string) string {
+	if d, ok := pythonImportToDist[name]; ok {
+		name = d
 	}
-	return strings.ToLower(modName)
+	name = strings.ReplaceAll(name, "-", "_")
+	name = strings.ReplaceAll(name, ".", "_")
+	return strings.ToLower(name)
 }
 
-// pipLabel renders the pip-package label using the configured pattern.
+// pipLabel renders a `@<repo>//<dist>` label using cfg.pipLinkPattern.
 func pipLabel(cfg *pyConfig, distName string) string {
 	return strings.ReplaceAll(cfg.pipLinkPattern, "{pkg}", distName)
+}
+
+// pipLabelForRepo renders a label with an explicit pip repo name. If the
+// pattern doesn't include a repo placeholder we fall back to the configured
+// pattern unchanged.
+func pipLabelForRepo(pattern, repo, distName string) string {
+	if repo == "" {
+		return strings.ReplaceAll(pattern, "{pkg}", distName)
+	}
+	// Replace the leading "@<existing>//" with "@<repo>//" if the user's
+	// pattern is a typical "@pip//{pkg}" form. Otherwise just substitute {pkg}.
+	if strings.HasPrefix(pattern, "@") {
+		if i := strings.Index(pattern, "//"); i > 0 {
+			rest := pattern[i+2:]
+			rest = strings.ReplaceAll(rest, "{pkg}", distName)
+			return "@" + repo + "//" + rest
+		}
+	}
+	return strings.ReplaceAll(pattern, "{pkg}", distName)
+}
+
+// parsePipRepo extracts "pip" from "@pip//{pkg}" so we can swap it when
+// gazelle_python.yaml names a different pip repo.
+func parsePipRepo(pattern string) string {
+	if !strings.HasPrefix(pattern, "@") {
+		return ""
+	}
+	rest := pattern[1:]
+	if i := strings.Index(rest, "/"); i > 0 {
+		return rest[:i]
+	}
+	return ""
 }
 
 // loadProjectDeps reads pyproject.toml and/or requirements.txt at the repo
@@ -241,15 +305,12 @@ func (l *pyLang) loadProjectDeps(repoRoot string) {
 		return
 	}
 
-	// pyproject.toml: scan [project] dependencies = [...] block.
 	if data, err := os.ReadFile(repoRoot + "/pyproject.toml"); err == nil {
 		for _, name := range scanPyProjectDeps(string(data)) {
 			l.packageDeps[name] = true
 		}
 	}
 
-	// requirements.txt / requirements.in: one dep per line; strip extras and
-	// version specifiers.
 	for _, name := range []string{"requirements.txt", "requirements.in"} {
 		f, err := os.Open(repoRoot + "/" + name)
 		if err != nil {

@@ -39,26 +39,38 @@ pub fn dispatch(frame: &[u8]) -> Vec<u8> {
 }
 
 pub fn handle_py(id: u32, req: pb::PyQueryRequest) -> pb::Response {
-    let imports: Vec<pb::PyImportByFile> = req
+    let results: Vec<pb::PyFileOutput> = req
         .files
         .par_iter()
-        .filter_map(|file| match py::extract_imports_from_file(file) {
-            Ok(import_paths) => Some(pb::PyImportByFile {
-                file: file.clone(),
-                import_paths,
-            }),
-            Err(e) => {
-                eprintln!("import_extractor: skipping {file}: {e}");
-                None
-            }
-        })
+        .filter_map(
+            |f| match py::extract_imports_from_file(&f.path, &f.rel_path) {
+                Ok(output) => Some(pb::PyFileOutput {
+                    file_name: output.file_name,
+                    modules: output
+                        .modules
+                        .into_iter()
+                        .map(|m| pb::PyModule {
+                            name: m.name,
+                            lineno: m.lineno,
+                            filepath: m.filepath,
+                            from: m.from,
+                            type_checking_only: m.type_checking_only,
+                        })
+                        .collect(),
+                    comments: output.comments,
+                    has_main: output.has_main,
+                }),
+                Err(e) => {
+                    eprintln!("import_extractor: skipping {}: {e}", f.path);
+                    None
+                }
+            },
+        )
         .collect();
 
     pb::Response {
         id,
-        data: Some(pb::response::Data::PyResult(pb::PyResponseResult {
-            imports,
-        })),
+        data: Some(pb::response::Data::PyResult(pb::PyResponseResult { results })),
     }
 }
 
@@ -66,11 +78,17 @@ pub fn handle_py(id: u32, req: pb::PyQueryRequest) -> pb::Response {
 mod tests {
     use super::*;
 
-    fn build_py_request(id: u32, files: Vec<&str>) -> Vec<u8> {
+    fn build_py_request(id: u32, specs: Vec<(&str, &str)>) -> Vec<u8> {
         pb::Request {
             id,
             data: Some(pb::request::Data::PyQuery(pb::PyQueryRequest {
-                files: files.into_iter().map(String::from).collect(),
+                files: specs
+                    .into_iter()
+                    .map(|(p, r)| pb::PyFileSpec {
+                        path: p.into(),
+                        rel_path: r.into(),
+                    })
+                    .collect(),
             })),
         }
         .encode_to_vec()
@@ -114,11 +132,43 @@ mod tests {
         let resp = handle_py(
             1,
             pb::PyQueryRequest {
-                files: vec!["/nonexistent/file/that/cannot/be/read.py".into()],
+                files: vec![pb::PyFileSpec {
+                    path: "/nonexistent/file/that/cannot/be/read.py".into(),
+                    rel_path: "missing.py".into(),
+                }],
             },
         );
         match resp.data {
-            Some(pb::response::Data::PyResult(r)) => assert!(r.imports.is_empty()),
+            Some(pb::response::Data::PyResult(r)) => assert!(r.results.is_empty()),
+            _ => panic!("expected py_result"),
+        }
+    }
+
+    #[test]
+    fn handle_py_returns_modules_for_real_file() {
+        let dir = std::env::temp_dir().join("import_extractor_wire_test_py");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.py");
+        std::fs::write(&path, "import os\nfrom sys import argv\n").unwrap();
+
+        let resp = handle_py(
+            5,
+            pb::PyQueryRequest {
+                files: vec![pb::PyFileSpec {
+                    path: path.to_string_lossy().into_owned(),
+                    rel_path: "a.py".into(),
+                }],
+            },
+        );
+        match resp.data {
+            Some(pb::response::Data::PyResult(r)) => {
+                assert_eq!(r.results.len(), 1);
+                let out = &r.results[0];
+                assert_eq!(out.file_name, "a.py");
+                assert_eq!(out.modules.len(), 2);
+                assert_eq!(out.modules[0].name, "os");
+                assert_eq!(out.modules[1].name, "sys.argv");
+            }
             _ => panic!("expected py_result"),
         }
     }

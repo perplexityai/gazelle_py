@@ -24,8 +24,9 @@ _LIB_DEPS = [
     # versions across separate crate.from_cargo invocations isn't enough,
     # they're distinct repo instances and Rust treats them as different types.
     "@rules_rs//rs/private/prost:prost_runtime",
-    "@crates//:rustpython-parser",
-    "@crates//:rustpython-ast",
+    "@crates//:ruff_python_ast",
+    "@crates//:ruff_python_parser",
+    "@crates//:ruff_text_size",
     "@crates//:rayon",
 ]
 

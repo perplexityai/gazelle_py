@@ -8,10 +8,10 @@ import (
 func TestIsPythonFile(t *testing.T) {
 	cfg := newPyConfig()
 	cases := map[string]bool{
-		"a.py":    true,
-		"a.pyi":   false, // not in defaults
-		"a.js":    false,
-		"a.json":  false,
+		"a.py":      true,
+		"a.pyi":     false, // not in defaults
+		"a.js":      false,
+		"a.json":    false,
 		"a_test.py": true,
 	}
 	for name, want := range cases {
@@ -32,13 +32,13 @@ func TestIsPythonFile_CustomExtensions(t *testing.T) {
 func TestIsTestFile_DefaultPatterns(t *testing.T) {
 	cfg := newPyConfig()
 	cases := map[string]bool{
-		"foo_test.py":      true,
-		"test_foo.py":      true,
-		"tests/index.py":   true,
-		"test/main.py":     true,
-		"src/foo.py":       false,
-		"foo.py":           false,
-		"foo_spec.py":      false, // not in default patterns
+		"foo_test.py":    true,
+		"test_foo.py":    true,
+		"tests/index.py": true,
+		"test/main.py":   true,
+		"src/foo.py":     false,
+		"foo.py":         false,
+		"foo_spec.py":    false, // not in default patterns
 	}
 	for name, want := range cases {
 		if got := isTestFile(name, cfg); got != want {

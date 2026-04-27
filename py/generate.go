@@ -9,17 +9,21 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
-// ImportData carries parsed imports from GenerateRules to Resolve. Gazelle
-// runs GenerateRules during the directory walk (before the RuleIndex is
-// complete) and Resolve afterwards, so we stash everything we'll need here.
+// ImportData carries parsed imports + annotations from GenerateRules to
+// Resolve. Gazelle runs GenerateRules during the directory walk (before the
+// RuleIndex is complete) and Resolve afterwards, so we stash everything we'll
+// need later. The two import slices are kept apart because Resolve attaches
+// them to different rules (library vs test).
 type ImportData struct {
 	Imports     []ImportStatement // source-file imports
 	TestImports []ImportStatement // test-file imports
+	Ignore      map[string]bool   // module names to skip during resolution
+	IncludeDeps []string          // labels to always add to deps
 }
 
 // GenerateRules walks a directory's files, partitions them into source vs.
-// test, parses imports via the Rust subprocess, and emits library + test
-// rules. The merge engine reconciles the result with the existing BUILD
+// test, parses imports via the cgo-bound import_extractor, and emits library +
+// test rules. The merge engine reconciles the result with the existing BUILD
 // content using KindInfo from kinds.go.
 func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResult {
 	cfg, ok := args.Config.Exts[languageName].(*pyConfig)
@@ -30,30 +34,52 @@ func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResu
 	libName, testName := resolveRuleNames(cfg, args.Rel)
 	libSrcs, testSrcs := collectSrcs(args.RegularFiles, cfg)
 
-	var pyFiles []string
+	// Build the (abs, rel) pair list the parser wants. Rel is what shows up
+	// in `result.FileName`, so resolve.go can match imports back to a file
+	// without juggling absolute paths.
+	var specs []FileSpec
 	for _, f := range args.RegularFiles {
-		if isPythonFile(f, cfg) {
-			pyFiles = append(pyFiles, filepath.Join(args.Dir, f))
+		if !isPythonFile(f, cfg) {
+			continue
 		}
+		specs = append(specs, FileSpec{
+			Path:    filepath.Join(args.Dir, f),
+			RelPath: filepath.Join(args.Rel, f),
+		})
 	}
 
-	var sourceImports, testImports []ImportStatement
-	allImports := map[string][]ImportStatement{}
-	if len(pyFiles) > 0 {
-		allImports, _ = l.extractImportsBatch(pyFiles)
+	var (
+		sourceImports []ImportStatement
+		testImports   []ImportStatement
+		allComments   []string
+	)
+	if len(specs) > 0 {
+		results, err := l.extractImportsBatch(specs)
+		if err != nil {
+			// We don't fail the whole gazelle run on a parser error — we just
+			// drop this directory's imports. The next run picks them up after
+			// the user fixes whatever made the parser unhappy.
+			results = nil
+		}
 		for _, f := range args.RegularFiles {
 			if !isPythonFile(f, cfg) {
 				continue
 			}
-			fullPath := filepath.Join(args.Dir, f)
-			imps := allImports[fullPath]
+			rel := filepath.Join(args.Rel, f)
+			r, ok := results[rel]
+			if !ok {
+				continue
+			}
+			allComments = append(allComments, r.Comments...)
 			if isTestFile(f, cfg) {
-				testImports = append(testImports, imps...)
+				testImports = append(testImports, r.Modules...)
 			} else {
-				sourceImports = append(sourceImports, imps...)
+				sourceImports = append(sourceImports, r.Modules...)
 			}
 		}
 	}
+
+	annot := parseAnnotations(allComments)
 
 	if len(libSrcs) == 0 && len(testSrcs) == 0 {
 		return language.GenerateResult{}
@@ -69,7 +95,11 @@ func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResu
 			r.SetAttr("visibility", cfg.visibility)
 		}
 		genRules = append(genRules, r)
-		genImports = append(genImports, ImportData{Imports: sourceImports})
+		genImports = append(genImports, ImportData{
+			Imports:     sourceImports,
+			Ignore:      annot.ignore,
+			IncludeDeps: annot.includeDep,
+		})
 	}
 
 	if len(testSrcs) > 0 {
@@ -78,16 +108,16 @@ func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResu
 		if len(cfg.testData) > 0 {
 			r.SetAttr("data", cfg.testData)
 		}
-		// py_test requires a `main` attr (the entry script). Pick the first
-		// test file alphabetically; users can override after the first run
-		// — the merge engine preserves a manually-set main across runs.
-		if len(testSrcs) > 0 {
-			r.SetAttr("main", testSrcs[0])
-		}
+		// py_test requires a `main` attr — pick the first test file
+		// alphabetically. The merge engine preserves a manually-set main on
+		// subsequent runs, so users can override after the first generation.
+		r.SetAttr("main", testSrcs[0])
 		genRules = append(genRules, r)
 		genImports = append(genImports, ImportData{
 			Imports:     sourceImports,
 			TestImports: testImports,
+			Ignore:      annot.ignore,
+			IncludeDeps: annot.includeDep,
 		})
 	}
 
@@ -173,7 +203,6 @@ func matchTestPattern(pattern, name string) bool {
 	if strings.HasSuffix(pattern, "*") {
 		return strings.HasPrefix(name, strings.TrimSuffix(pattern, "*"))
 	}
-	// `test_*.py` (literal `*` in middle) doesn't get special treatment;
 	// `prefix*suffix` patterns:
 	if i := strings.Index(pattern, "*"); i > 0 && i < len(pattern)-1 {
 		prefix := pattern[:i]
@@ -184,9 +213,8 @@ func matchTestPattern(pattern, name string) bool {
 }
 
 // collectSrcs partitions the directory's files into library and test srcs,
-// each sorted for deterministic BUILD output. Skips __init__.py — it is
-// emitted as part of `srcs` on the package's own library rule (callers add
-// it to the directory's regular files; we treat it like any other .py).
+// each sorted for deterministic BUILD output. We keep __init__.py in the
+// library bucket so it travels with the package.
 func collectSrcs(regularFiles []string, cfg *pyConfig) (libFiles, testFiles []string) {
 	for _, f := range regularFiles {
 		if !isPythonFile(f, cfg) {
