@@ -1,0 +1,13 @@
+{
+    "homepage": "https://github.com/hermeticbuild/gazelle_py",
+    "maintainers": [
+        {
+            "name": "Long Ho",
+            "email": "holevietlong@gmail.com",
+            "github": "longlho"
+        }
+    ],
+    "repository": ["github:hermeticbuild/gazelle_py"],
+    "versions": [],
+    "yanked_versions": {}
+}

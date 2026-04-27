@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/import_extractor",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"
+license = "Apache-2.0"
+repository = "https://github.com/hermeticbuild/gazelle_py"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = "thin"
+
+[workspace.dependencies]
+# Python parsing (rustpython-parser).
+# Swap for `ruff_python_parser` if you want the Ruff parser; the visitor
+# in src/py.rs is small enough to port either way.
+rustpython-parser = "0.4"
+rustpython-ast = "0.4"
+
+# Proto / RPC
+# Pinned to 0.13.1 to match the prost runtime that rules_rs's rust_prost_library
+# generates against (its bundled rrprd repo). Mismatched versions produce
+# trait-path conflicts at link time.
+prost = "=0.13.1"
+prost-types = "=0.13.1"
+
+# Shared
+rayon = "1.12"

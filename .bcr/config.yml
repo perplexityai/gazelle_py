@@ -1,0 +1,7 @@
+# Configuration for the publish-to-bcr GitHub App.
+# https://github.com/bazel-contrib/publish-to-bcr#configuration
+
+# Pin the BCR releaser so submissions don't depend on whoever pushed the tag.
+fixedReleaser:
+  login: longlho
+  email: holevietlong@gmail.com
