@@ -20,6 +20,11 @@ const (
 	directiveExtension      = "py_extension"
 	directivePipLinkPattern = "py_pip_link_pattern"
 	directiveTestData       = "py_test_data"
+	// directiveManifest points at a gazelle_python.yaml file (relative to repo
+	// root) whose `modules_mapping` overrides our internal import → distribution
+	// table. Set this when working with rules_python's pip_parse, which is
+	// already configured to read the same file.
+	directiveManifest = "py_manifest"
 )
 
 // RegisterFlags is a no-op — all configuration is via BUILD-file directives.
@@ -42,6 +47,7 @@ func (l *pyLang) KnownDirectives() []string {
 		directiveExtension,
 		directivePipLinkPattern,
 		directiveTestData,
+		directiveManifest,
 	}
 }
 
@@ -109,6 +115,10 @@ func applyDirective(cfg *pyConfig, d rule.Directive) {
 	case directiveTestData:
 		if val != "" {
 			cfg.testData = appendUnique(cfg.testData, val)
+		}
+	case directiveManifest:
+		if val != "" {
+			cfg.manifestPath = val
 		}
 	}
 }

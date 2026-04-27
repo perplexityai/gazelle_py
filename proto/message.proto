@@ -1,6 +1,8 @@
 syntax = "proto3";
 package import_extractor;
 
+option go_package = "github.com/hermeticbuild/gazelle_py/py/proto";
+
 message Request {
   uint32 id = 1;
   oneof data {
@@ -23,14 +25,33 @@ message ResponseError {
 // --- Python ---
 
 message PyQueryRequest {
-  repeated string files = 1;
+  repeated PyFileSpec files = 1;
+}
+
+// PyFileSpec describes a single file to parse. We pass both the absolute
+// path (so the Rust side can read the bytes off disk) and a workspace-
+// relative path (so the resulting PyModule.filepath stays portable across
+// sandbox boundaries).
+message PyFileSpec {
+  string path = 1;      // absolute or runfiles-resolvable path to read
+  string rel_path = 2;  // workspace-relative path stamped into the output
 }
 
 message PyResponseResult {
-  repeated PyImportByFile imports = 1;
+  repeated PyFileOutput results = 1;
 }
 
-message PyImportByFile {
-  string file = 1;
-  repeated string import_paths = 2;
+message PyFileOutput {
+  string file_name = 1;
+  repeated PyModule modules = 2;
+  repeated string comments = 3;
+  bool has_main = 4;
+}
+
+message PyModule {
+  string name = 1;
+  uint32 lineno = 2;
+  string filepath = 3;
+  string from = 4;
+  bool type_checking_only = 5;
 }

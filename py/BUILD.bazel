@@ -14,6 +14,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "py",
     srcs = [
+        "annotations.go",
         "config.go",
         "configure.go",
         "fix.go",
@@ -22,8 +23,10 @@ go_library(
         "imports.go",
         "kinds.go",
         "language.go",
+        "manifest.go",
         "parser.go",
         "resolve.go",
+        "stdlib.go",
     ],
     cgo = True,
     # Rust import_extractor staticlib linked via cgo. The wrapper in
@@ -48,8 +51,10 @@ go_library(
 go_test(
     name = "py_test",
     srcs = [
+        "annotations_test.go",
         "config_test.go",
         "generate_test.go",
+        "manifest_test.go",
         "resolve_test.go",
     ],
     embed = [":py"],

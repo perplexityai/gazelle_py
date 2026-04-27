@@ -33,13 +33,67 @@ If you have your own macros, use `# gazelle:map_kind` to swap.
 
 ## Architecture
 
-The plugin runs in three phases per Gazelle's lifecycle:
+The plugin runs through Gazelle's standard three-phase lifecycle. The diagram below traces a single directory's processing:
 
-1. **Configure** ([`configure.go`](configure.go)) — walks the directory tree, applying each directory's BUILD-file directives on top of the inherited config.
-2. **GenerateRules** ([`generate.go`](generate.go)) — for each directory, partitions files into source vs test, calls into the Rust staticlib via cgo to extract imports, and emits library + test rules.
-3. **Resolve** ([`resolve.go`](resolve.go)) — converts the parsed import statements into Bazel deps using the RuleIndex (for cross-package refs) and the pip link pattern (for PyPI packages).
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Gz as gazelle (binary)
+    participant Cfg as configure.go
+    participant Gen as generate.go
+    participant FFI as import_extractor.go (cgo)
+    participant Rs as Rust staticlib (ruff)
+    participant Idx as RuleIndex
+    participant Res as resolve.go
 
-The Rust crate at [`crates/import_extractor`](../crates/import_extractor) is built as a `rust_static_library` and linked into this `go_library` via `cdeps`. Calls into it go through cgo — no subprocess, no IPC.
+    Gz->>Cfg: Configure(args)
+    Note over Cfg: clone parent pyConfig,<br/>apply directives,<br/>seed pyproject deps at root
+
+    Gz->>Gen: GenerateRules(args)
+    Gen->>Gen: collectSrcs() → libSrcs / testSrcs
+    Gen->>FFI: extractImportsBatch([{abs, rel}…])
+    FFI->>Rs: ie_dispatch(PyQueryRequest bytes)
+    Rs->>Rs: parse_unchecked + visitor
+    Rs-->>FFI: PyResponseResult bytes
+    FFI-->>Gen: []FileImports (modules + comments + has_main)
+    Gen->>Gen: parseAnnotations(comments)
+    Gen-->>Gz: py_library + py_test (with srcs only;<br/>deps not yet set)
+
+    Gz->>Idx: index Imports() specs (pkg, pkg.*, pkg.x for each src)
+
+    Gz->>Res: Resolve(rule, ImportData, from)
+    Res->>Res: walk possible-modules ladder<br/>(directives → manifest → RuleIndex → stdlib)
+    Res->>Idx: FindRulesByImportWithConfig
+    Idx-->>Res: matching labels
+    Res->>Res: synthesize ancestor conftest deps (test rules only)
+    Res-->>Gz: rule.SetAttr("deps", …)
+```
+
+The Rust crate at [`../crates/import_extractor`](../crates/import_extractor) is built as a `rust_static_library` and linked into this `go_library` via `cdeps`. Calls into it go through cgo — no subprocess, no IPC.
+
+## Resolution decision tree
+
+For each import the resolver walks a "possible modules" ladder, trying progressively shorter dotted prefixes (`a.b.c.d` → `a.b.c` → `a.b` → `a`). At each prefix it checks every source in order before stepping shorter — that ordering matters: a single `# gazelle:resolve py <broad> <label>` directive must NOT steal an import that's actually a deeper, more specific submodule provided by another rule.
+
+```mermaid
+flowchart TD
+    Start([import \"a.b.c.d\"]) --> Skip{relative<br/>or in ignore set?}
+    Skip -- yes --> Drop[no dep]
+    Skip -- no --> P1[try \"a.b.c.d\"]
+    P1 --> P1a{gazelle:resolve<br/>directive?}
+    P1a -- yes --> Use[emit dep]
+    P1a -- no --> P1b{in manifest?}
+    P1b -- yes --> Use
+    P1b -- no --> P1c{first-party<br/>RuleIndex hit?}
+    P1c -- yes --> Use
+    P1c -- no --> P1d{stdlib?}
+    P1d -- yes --> Drop
+    P1d -- no --> P2[try \"a.b.c\"]
+    P2 --> dots[…]
+    dots --> Final{any prefix<br/>matched?}
+    Final -- yes --> Use
+    Final -- no --> Pip[fallback: @pip//&lt;dist&gt;\nif declared in pyproject]
+```
 
 ## Directives
 
@@ -52,22 +106,33 @@ All directives are placed in `BUILD.bazel` as `# gazelle:<key> <value>` and inhe
 | `py_test_name` | _(package basename + `_test`)_ | Name of the generated test rule. |
 | `py_library_kind` | `py_library` | Override emitted library kind without `map_kind`. |
 | `py_test_kind` | `py_test` | Override emitted test kind without `map_kind`. |
-| `py_visibility` | `//visibility:public` | Repeatable / space-separated list. |
+| `py_visibility` | `//visibility:public` | Space-separated label list. |
 | `py_test_pattern` | `*_test.py`, `test_*.py`, `tests/**`, `test/**` | Repeatable; appended. |
 | `py_extension` | `.py` | Repeatable; appended. |
 | `py_pip_link_pattern` | `@pip//{pkg}` | Template; `{pkg}` is replaced with the resolved distribution name. |
 | `py_test_data` | _(empty)_ | Repeatable; appended to every test rule's `data`. |
+| `py_manifest` | _(empty)_ | Workspace-relative path to a `gazelle_python.yaml` (rules_python format). When set, its `modules_mapping` overrides built-in import → distribution heuristics, and its `pip_repository.name` swaps the repo segment of `py_pip_link_pattern`. |
+
+### Per-source-file annotations
+
+The plugin reads `# gazelle:` lines _inside Python source files_ during parsing:
+
+```python
+# gazelle:ignore foo,bar          # skip these modules in this file
+# gazelle:include_dep //extra:dep # always add this dep to the rule
+import foo
+import bar
+import baz
+```
+
+`# gazelle:ignore` accepts either space- or comma-separated module names. The match is prefix-based: ignoring `a.b` covers `a.b.c.D` and the `from` part of `from a.b import x`.
 
 ## How import resolution works
 
-1. `pyproject.toml` and `requirements.txt` (if present) are read once at the repo root for declared distribution names.
-2. Per import:
-   - **Relative** (`from . import x`, `from .foo import x`): no dep added.
-   - **`# gazelle:resolve py <import> <label>` override**: wins over everything else.
-   - **Stdlib** (`os`, `sys`, `json`, …): no dep added — the interpreter provides it.
-   - **Internal package** (matches a label registered in the RuleIndex): emitted as a workspace-relative label.
-   - **PyPI package**: resolves to `{pipLinkPattern}` with `{pkg}` replaced by the lowercased / underscored distribution name.
-3. Library and test rules both get `deps`. Tests absorb their own imports plus the surrounding library's imports.
+1. `pyproject.toml`, `requirements.txt`, and `requirements.in` (if present) are read once at the repo root for declared distribution names.
+2. If `py_manifest` points at a `gazelle_python.yaml`, the file's `modules_mapping` is loaded once on first use.
+3. Per import, run the possible-modules ladder shown above.
+4. **Test rules** also receive the surrounding library's imports plus synthetic imports for every ancestor directory containing a `conftest.py` — those get resolved like any other import, so a dedicated `:conftest` `py_library` target is automatically picked up while plain `from x.conftest import …` statements (and self-imports) are dropped.
 
 ## Running with a custom macro (`map_kind`)
 

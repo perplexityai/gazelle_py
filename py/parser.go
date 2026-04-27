@@ -1,32 +1,45 @@
 package py
 
-// ImportStatement is a single import found in a Python file. We track the
-// source file so error messages can point at the exact file that introduced a
-// particular dependency.
+// ImportStatement is a single import found in a Python file. Line and From let
+// us produce useful diagnostics ("file X line N imports Y") and feed the
+// possible-modules loop in resolve.go (which walks both the full name and the
+// `from` part).
 type ImportStatement struct {
-	ImportPath string // module specifier (e.g., "os", "myorg.api.client")
-	SourceFile string // file containing the import (e.g., "packages/foo/src/main.py")
+	ImportPath       string // full dotted module path (e.g. "os.path.join")
+	From             string // the "from" part of `from a.b import c` (else empty)
+	SourceFile       string // workspace-relative file containing the import
+	LineNumber       uint32 // 1-indexed line number for diagnostics
+	TypeCheckingOnly bool   // true if inside `if TYPE_CHECKING:` block
 }
 
-// extractImportsBatch sends a batch of file paths through the cgo FFI and
-// returns the parsed imports keyed by file path. Per-call batching keeps
-// Rust's rayon parallelism alive across all files in the batch.
-func (l *pyLang) extractImportsBatch(filePaths []string) (map[string][]ImportStatement, error) {
-	result, err := extractImports(filePaths)
+// FileImports holds everything the parser extracted for a single file. Comments
+// drive `# gazelle:ignore` / `# gazelle:include_dep` annotation parsing in the
+// generator; HasMain is captured for completeness even though we don't currently
+// use it to emit `py_binary` rules.
+type FileImports struct {
+	FileName string // workspace-relative path (e.g. "pkg/foo.py")
+	Modules  []ImportStatement
+	Comments []string
+	HasMain  bool
+}
+
+// extractImportsBatch sends a batch of (abs, rel) file specs through the cgo
+// FFI. The returned map is keyed by the workspace-relative path so callers
+// can look up results without juggling absolute paths.
+func (l *pyLang) extractImportsBatch(specs []FileSpec) (map[string]FileImports, error) {
+	results, err := extractImports(specs)
 	if err != nil {
 		return nil, err
 	}
-
-	imports := make(map[string][]ImportStatement, len(result))
-	for file, paths := range result {
-		stmts := make([]ImportStatement, 0, len(paths))
-		for _, p := range paths {
-			stmts = append(stmts, ImportStatement{
-				ImportPath: p,
-				SourceFile: file,
-			})
-		}
-		imports[file] = stmts
+	out := make(map[string]FileImports, len(results))
+	for _, r := range results {
+		out[r.FileName] = r
 	}
-	return imports, nil
+	return out, nil
+}
+
+// FileSpec mirrors the proto PyFileSpec on the Go side.
+type FileSpec struct {
+	Path    string // absolute (or runfiles-resolvable) path; the parser reads bytes here
+	RelPath string // workspace-relative path stamped into the output's FileName
 }
