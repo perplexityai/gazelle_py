@@ -57,12 +57,12 @@ sequenceDiagram
     Rs-->>FFI: PyResponseResult bytes
     FFI-->>Gen: []FileImports (modules + comments + has_main)
     Gen->>Gen: parseAnnotations(comments)
-    Gen-->>Gz: py_library + py_test (with srcs only;<br/>deps not yet set)
+    Gen-->>Gz: py_library + py_test (with srcs only; deps not yet set)
 
     Gz->>Idx: index Imports() specs (pkg, pkg.*, pkg.x for each src)
 
     Gz->>Res: Resolve(rule, ImportData, from)
-    Res->>Res: walk possible-modules ladder<br/>(directives → manifest → RuleIndex → stdlib)
+    Res->>Res: walk possible-modules ladder (directives → manifest → RuleIndex → stdlib)
     Res->>Idx: FindRulesByImportWithConfig
     Idx-->>Res: matching labels
     Res->>Res: synthesize ancestor conftest deps (test rules only)
