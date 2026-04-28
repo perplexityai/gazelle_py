@@ -5,6 +5,7 @@ matrix:
     - ubuntu2204
   bazel:
     - 9.x
+    - 8.5.x
 
 tasks:
   verify_targets:
