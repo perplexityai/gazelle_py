@@ -1,0 +1,14 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+py_library(
+    name = "myapp",
+    srcs = ["app.py"],
+    visibility = ["//visibility:public"],
+)
+
+py_test(
+    name = "myapp_test",
+    srcs = ["app_test.py"],
+    main = "app_test.py",
+    deps = [":myapp"],
+)

@@ -50,3 +50,32 @@ jobs:
 
       - name: bazel test //...
         run: bazelisk test //...
+
+  # Examples are linux-only — they exercise the BUILD-generation path and
+  # don't add platform-specific coverage worth the macOS runner cost.
+  examples:
+    name: example ${{ matrix.example }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [basic, composite]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}-examples-${{ matrix.example }}
+          repository-cache: true
+
+      - name: bazel test //... (examples/${{ matrix.example }})
+        working-directory: examples/${{ matrix.example }}
+        run: bazelisk test //...
+
+      - name: gazelle idempotency check (examples/${{ matrix.example }})
+        working-directory: examples/${{ matrix.example }}
+        run: |
+          bazelisk run //:gazelle -- update -mode=diff
