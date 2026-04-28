@@ -10,20 +10,20 @@ import (
 func TestApplyDirective_Enabled(t *testing.T) {
 	cfg := newPyConfig()
 	// rules_python's verbatim values.
-	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "disabled"})
+	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "disabled"}, "")
 	if cfg.enabled {
 		t.Fatalf("python_extension disabled: cfg.enabled = true")
 	}
-	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "enabled"})
+	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "enabled"}, "")
 	if !cfg.enabled {
 		t.Fatalf("python_extension enabled: cfg.enabled = false")
 	}
 	// Bool ergonomic aliases.
-	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "false"})
+	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "false"}, "")
 	if cfg.enabled {
 		t.Fatalf("python_extension false: cfg.enabled = true")
 	}
-	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "true"})
+	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "true"}, "")
 	if !cfg.enabled {
 		t.Fatalf("python_extension true: cfg.enabled = false")
 	}
@@ -31,11 +31,11 @@ func TestApplyDirective_Enabled(t *testing.T) {
 
 func TestApplyDirective_Strings(t *testing.T) {
 	cfg := newPyConfig()
-	applyDirective(cfg, rule.Directive{Key: directiveLibraryName, Value: "src"})
-	applyDirective(cfg, rule.Directive{Key: directiveTestName, Value: "spec"})
-	applyDirective(cfg, rule.Directive{Key: directiveLibraryKind, Value: "my_lib"})
-	applyDirective(cfg, rule.Directive{Key: directiveTestKind, Value: "my_test"})
-	applyDirective(cfg, rule.Directive{Key: directiveLabelConvention, Value: "@my_pip//{pkg}"})
+	applyDirective(cfg, rule.Directive{Key: directiveLibraryName, Value: "src"}, "")
+	applyDirective(cfg, rule.Directive{Key: directiveTestName, Value: "spec"}, "")
+	applyDirective(cfg, rule.Directive{Key: directiveLibraryKind, Value: "my_lib"}, "")
+	applyDirective(cfg, rule.Directive{Key: directiveTestKind, Value: "my_test"}, "")
+	applyDirective(cfg, rule.Directive{Key: directiveLabelConvention, Value: "@my_pip//{pkg}"}, "")
 
 	if cfg.libraryName != "src" {
 		t.Errorf("libraryName = %q", cfg.libraryName)
@@ -56,7 +56,7 @@ func TestApplyDirective_Strings(t *testing.T) {
 
 func TestApplyDirective_Visibility(t *testing.T) {
 	cfg := newPyConfig()
-	applyDirective(cfg, rule.Directive{Key: directiveVisibility, Value: "//foo:__pkg__ //bar:__pkg__"})
+	applyDirective(cfg, rule.Directive{Key: directiveVisibility, Value: "//foo:__pkg__ //bar:__pkg__"}, "")
 	want := []string{"//foo:__pkg__", "//bar:__pkg__"}
 	if !reflect.DeepEqual(cfg.visibility, want) {
 		t.Errorf("visibility = %v want %v", cfg.visibility, want)
@@ -65,9 +65,9 @@ func TestApplyDirective_Visibility(t *testing.T) {
 
 func TestApplyDirective_AppendDirectives(t *testing.T) {
 	cfg := newPyConfig()
-	applyDirective(cfg, rule.Directive{Key: directiveTestPattern, Value: "*_check.py"})
-	applyDirective(cfg, rule.Directive{Key: directiveSourceExtension, Value: ".pyi"})
-	applyDirective(cfg, rule.Directive{Key: directiveTestData, Value: "//:fixtures"})
+	applyDirective(cfg, rule.Directive{Key: directiveTestPattern, Value: "*_check.py"}, "")
+	applyDirective(cfg, rule.Directive{Key: directiveSourceExtension, Value: ".pyi"}, "")
+	applyDirective(cfg, rule.Directive{Key: directiveTestData, Value: "//:fixtures"}, "")
 
 	if !contains(cfg.testPatterns, "*_check.py") {
 		t.Errorf("testPatterns missing *_check.py: %v", cfg.testPatterns)
@@ -80,7 +80,7 @@ func TestApplyDirective_AppendDirectives(t *testing.T) {
 	}
 
 	// Re-applying the same value should not duplicate.
-	applyDirective(cfg, rule.Directive{Key: directiveTestPattern, Value: "*_check.py"})
+	applyDirective(cfg, rule.Directive{Key: directiveTestPattern, Value: "*_check.py"}, "")
 	count := 0
 	for _, p := range cfg.testPatterns {
 		if p == "*_check.py" {
@@ -89,6 +89,44 @@ func TestApplyDirective_AppendDirectives(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected 1 occurrence of *_check.py, got %d", count)
+	}
+}
+
+func TestApplyDirective_PythonRoot(t *testing.T) {
+	cfg := newPyConfig()
+	// python_root takes the rel of the BUILD file it's defined in, not whatever
+	// value the user types after the directive.
+	applyDirective(cfg, rule.Directive{Key: directivePythonRoot, Value: ""}, "backend")
+	if cfg.pythonRoot != "backend" {
+		t.Fatalf("python_root: cfg.pythonRoot = %q, want %q", cfg.pythonRoot, "backend")
+	}
+}
+
+func TestApplyDirective_ResolveSiblingImports(t *testing.T) {
+	cfg := newPyConfig()
+	applyDirective(cfg, rule.Directive{Key: directiveResolveSiblingImports, Value: "true"}, "")
+	if !cfg.resolveSiblingImports {
+		t.Fatalf("python_resolve_sibling_imports true: cfg.resolveSiblingImports = false")
+	}
+	applyDirective(cfg, rule.Directive{Key: directiveResolveSiblingImports, Value: "false"}, "")
+	if cfg.resolveSiblingImports {
+		t.Fatalf("python_resolve_sibling_imports false: cfg.resolveSiblingImports = true")
+	}
+}
+
+func TestApplyDirective_LabelNormalization(t *testing.T) {
+	cases := map[string]labelNormalizationType{
+		"snake_case": snakeCaseNormalization,
+		"pep503":     pep503Normalization,
+		"none":       noneNormalization,
+		"PEP503":     pep503Normalization, // case-insensitive
+	}
+	for val, want := range cases {
+		cfg := newPyConfig()
+		applyDirective(cfg, rule.Directive{Key: directiveLabelNormalization, Value: val}, "")
+		if cfg.labelNormalization != want {
+			t.Errorf("python_label_normalization=%q: got %v, want %v", val, cfg.labelNormalization, want)
+		}
 	}
 }
 

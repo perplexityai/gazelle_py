@@ -5,17 +5,49 @@ import (
 	"testing"
 )
 
-func TestNormalizeDist(t *testing.T) {
+func TestNormalizeDist_SnakeCase(t *testing.T) {
 	cases := map[string]string{
 		"requests": "requests",
 		"NumPy":    "numpy",
 		"cv2":      "opencv_python",
 		"PIL":      "pillow",
 		"sklearn":  "scikit_learn",
+		"dateutil": "python_dateutil",
 	}
 	for in, want := range cases {
-		if got := normalizeDist(in); got != want {
-			t.Errorf("normalizeDist(%q) = %q, want %q", in, got, want)
+		if got := normalizeDist(in, snakeCaseNormalization); got != want {
+			t.Errorf("normalizeDist(%q, snake_case) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNormalizeDist_Pep503(t *testing.T) {
+	cases := map[string]string{
+		"requests":         "requests",
+		"NumPy":            "numpy",
+		"cv2":              "opencv-python",
+		"sklearn":          "scikit-learn",
+		"dateutil":         "python-dateutil",
+		"Some.Weird_Name":  "some-weird-name",
+		"Multi___Underscore": "multi-underscore",
+	}
+	for in, want := range cases {
+		if got := normalizeDist(in, pep503Normalization); got != want {
+			t.Errorf("normalizeDist(%q, pep503) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNormalizeDist_None(t *testing.T) {
+	// Identity, except the import→dist map still applies (caller's option).
+	cases := map[string]string{
+		"requests": "requests",
+		"NumPy":    "NumPy",
+		"cv2":      "opencv-python", // map lookup hits, then identity preserves form
+	}
+	for in, want := range cases {
+		if got := normalizeDist(in, noneNormalization); got != want {
+			t.Errorf("normalizeDist(%q, none) = %q, want %q", in, got, want)
 		}
 	}
 }

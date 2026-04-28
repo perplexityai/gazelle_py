@@ -114,6 +114,9 @@ All directive keys mirror [rules_python's gazelle plugin](https://rules-python.r
 | `python_label_convention` | `@pip//{pkg}` | Template; `{pkg}` is replaced with the resolved distribution name. |
 | `python_test_data` | _(empty)_ | Repeatable; appended to every test rule's `data`. |
 | `python_manifest_file_name` | _(empty)_ | Workspace-relative path to a `gazelle_python.yaml` (rules_python format). When set, its `modules_mapping` overrides built-in import → distribution heuristics, and its `pip_repository.name` swaps the repo segment of `python_label_convention`. |
+| `python_root` | _(workspace root)_ | Marks the current package as the Python project root: dotted import paths under it are interpreted relative to this directory. Set on a parent BUILD file in monorepos with multiple Python projects sharing one workspace (e.g. `backend/`, `tools/python/`). The directive's value is ignored — it picks up the BUILD file's own path. |
+| `python_resolve_sibling_imports` | `false` | When true, bare-module imports (`from app import X`) resolve as siblings of the importer's package. Lets a sibling `app.py` resolve to the local library even when the test references it as a top-level module name. Off by default to match rules_python and avoid surprising cross-package matches. |
+| `python_label_normalization` | `snake_case` | How distribution names are normalized when rendering pip labels: `snake_case` (default; lowercase + `[-.]→_`), `pep503` (lowercase + runs of `[-_.]→-`), or `none` (identity). Pick `pep503` if your pip repo keys directly on PEP 503 names. |
 
 ### Per-source-file annotations
 

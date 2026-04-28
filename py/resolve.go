@@ -185,7 +185,7 @@ func (l *pyLang) resolveOne(
 			if repoName == "" {
 				repoName = parsePipRepo(cfg.pipLinkPattern)
 			}
-			return pipLabelForRepo(cfg.pipLinkPattern, repoName, normalizeDist(dist))
+			return pipLabelForRepo(cfg.pipLinkPattern, repoName, normalizeDist(dist, cfg.labelNormalization))
 		}
 
 		// 3. First-party rule index — exact match.
@@ -205,6 +205,36 @@ func (l *pyLang) resolveOne(
 			return hits[0].Label.Rel(from.Repo, from.Pkg).String()
 		}
 
+		// 3c. Sibling-import resolution: when enabled, also try the import
+		// path as if it were a sibling of the importer's own package. So
+		// `from app import X` from `myapp/app_test.py` matches a local
+		// `myapp/app.py` library. Off by default (matches rules_python).
+		if cfg.resolveSiblingImports && from.Pkg != "" {
+			rel := from.Pkg
+			if cfg.pythonRoot != "" {
+				rel = strings.TrimPrefix(rel, cfg.pythonRoot)
+				rel = strings.TrimPrefix(rel, "/")
+			}
+			fromDotted := strings.ReplaceAll(rel, "/", ".")
+			if fromDotted != "" {
+				sibKey := fromDotted + "." + try
+				sibSpec := resolve.ImportSpec{Lang: languageName, Imp: sibKey}
+				if hits := ix.FindRulesByImportWithConfig(c, sibSpec, languageName); len(hits) > 0 {
+					if hits[0].IsSelfImport(from) {
+						return ""
+					}
+					return hits[0].Label.Rel(from.Repo, from.Pkg).String()
+				}
+				sibWild := resolve.ImportSpec{Lang: languageName, Imp: sibKey + ".*"}
+				if hits := ix.FindRulesByImportWithConfig(c, sibWild, languageName); len(hits) > 0 {
+					if hits[0].IsSelfImport(from) {
+						return ""
+					}
+					return hits[0].Label.Rel(from.Repo, from.Pkg).String()
+				}
+			}
+		}
+
 		// 4. Stdlib — no dep needed.
 		topLevel := strings.SplitN(try, ".", 2)[0]
 		if isStdlib(topLevel) {
@@ -219,8 +249,12 @@ func (l *pyLang) resolveOne(
 	if isStdlib(topLevel) {
 		return ""
 	}
-	dist := normalizeDist(topLevel)
-	if len(l.packageDeps) > 0 && !l.packageDeps[dist] {
+	dist := normalizeDist(topLevel, cfg.labelNormalization)
+	// packageDeps is normalized at load time as snake_case for back-compat;
+	// gate emission against the snake form regardless of the active mode so
+	// pyproject-declared deps stay matched even when rendering pep503 labels.
+	declared := normalizeDist(topLevel, snakeCaseNormalization)
+	if len(l.packageDeps) > 0 && !l.packageDeps[declared] {
 		return ""
 	}
 	return pipLabel(cfg, dist)
@@ -235,29 +269,58 @@ func setOrDelete(r *rule.Rule, attr string, values []string) {
 	}
 }
 
-// pythonImportToDist maps Python import names to PyPI distribution names for
-// the common cases where they differ. Users add overrides via
-// `# gazelle:resolve py <import> <label>` or by extending gazelle_python.yaml.
+// pythonImportToDist maps Python import names to canonical PyPI distribution
+// names for the common cases where they differ. Values are stored in PEP 503
+// form (hyphens, lowercase) — `normalizeDist` converts to the active label
+// normalization mode at render time. Users add overrides via
+// `# gazelle:resolve python <import> <label>` or by extending gazelle_python.yaml.
 var pythonImportToDist = map[string]string{
-	"cv2":      "opencv_python",
+	"cv2":      "opencv-python",
 	"PIL":      "pillow",
-	"sklearn":  "scikit_learn",
+	"sklearn":  "scikit-learn",
 	"yaml":     "pyyaml",
 	"bs4":      "beautifulsoup4",
 	"OpenSSL":  "pyopenssl",
-	"dateutil": "python_dateutil",
+	"dateutil": "python-dateutil",
 }
 
 // normalizeDist converts a top-level Python module name to its conventional
-// PyPI distribution name (PEP 503 normalization: lowercase, hyphens/dots →
-// underscores).
-func normalizeDist(name string) string {
+// PyPI distribution-name label form, dispatching on the active normalization:
+//
+//   - snake_case (default): lowercase + [-.] → "_"
+//   - pep503:               lowercase + runs of [-_.] → single "-"
+//   - none:                 identity (after the import→dist map lookup)
+func normalizeDist(name string, mode labelNormalizationType) string {
 	if d, ok := pythonImportToDist[name]; ok {
 		name = d
 	}
-	name = strings.ReplaceAll(name, "-", "_")
-	name = strings.ReplaceAll(name, ".", "_")
-	return strings.ToLower(name)
+	switch mode {
+	case noneNormalization:
+		return name
+	case pep503Normalization:
+		name = strings.ToLower(name)
+		// Collapse any run of [-_.] into a single "-".
+		var b strings.Builder
+		b.Grow(len(name))
+		prevSep := false
+		for i := 0; i < len(name); i++ {
+			ch := name[i]
+			if ch == '-' || ch == '_' || ch == '.' {
+				if !prevSep {
+					b.WriteByte('-')
+					prevSep = true
+				}
+				continue
+			}
+			b.WriteByte(ch)
+			prevSep = false
+		}
+		return b.String()
+	default: // snakeCaseNormalization
+		name = strings.ReplaceAll(name, "-", "_")
+		name = strings.ReplaceAll(name, ".", "_")
+		return strings.ToLower(name)
+	}
 }
 
 // pipLabel renders a `@<repo>//<dist>` label using cfg.pipLinkPattern.

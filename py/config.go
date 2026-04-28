@@ -13,6 +13,23 @@ const (
 	defaultPipLinkPattern = "@pip//{pkg}"
 )
 
+// labelNormalizationType selects how distribution names are normalized when
+// rendering pip labels. Mirrors rules_python's `python_label_normalization`
+// directive values.
+type labelNormalizationType int
+
+const (
+	// snakeCaseNormalization (rules_python's default): lowercase + hyphens to
+	// underscores. Matches what rules_python's pip_parse emits today.
+	snakeCaseNormalization labelNormalizationType = iota
+	// pep503Normalization (PEP 503): lowercase + runs of [-_.] → single "-".
+	// Used by some pip-repo flavors that key directly on PEP 503 names.
+	pep503Normalization
+	// noneNormalization: identity. Useful when the manifest already supplies
+	// the exact label form.
+	noneNormalization
+)
+
 // Default test-file patterns and source-file extensions. Patterns are matched
 // against the file path relative to the package directory.
 var (
@@ -59,20 +76,44 @@ type pyConfig struct {
 	// "no manifest" — the resolver falls back to derivation from
 	// pyproject.toml / requirements.txt.
 	manifestPath string
+
+	// pythonRoot is the workspace-relative directory considered the root of
+	// the Python module tree. All dotted import paths are interpreted relative
+	// to this prefix when registering libraries in the RuleIndex. Empty means
+	// "the workspace root itself", which is the most common single-project
+	// layout. Set via the `python_root` directive on a parent BUILD file when
+	// you have multiple Python projects sharing the same Bazel workspace
+	// (e.g. `backend/`, `tools/python/`).
+	pythonRoot string
+
+	// resolveSiblingImports controls whether bare-module imports
+	// (`from app import X`) are resolved as siblings of the importer's
+	// package. When true, the resolver also tries `<from.pkg>.<module>`
+	// against the rule index, so a sibling `app.py` resolves to the local
+	// library even when the test references it as a top-level module name.
+	// Default false to match rules_python's default and avoid surprising
+	// cross-package matches.
+	resolveSiblingImports bool
+
+	// labelNormalization selects how distribution names are normalized when
+	// rendering pip labels (see labelNormalizationType). Default snake_case
+	// matches rules_python's pip_parse behavior.
+	labelNormalization labelNormalizationType
 }
 
 // newPyConfig returns a config populated with all defaults.
 func newPyConfig() *pyConfig {
 	return &pyConfig{
-		enabled:        true,
-		libraryName:    defaultLibraryName,
-		testName:       defaultTestName,
-		libraryKind:    defaultLibraryKind,
-		testKind:       defaultTestKind,
-		visibility:     append([]string(nil), defaultVisibility...),
-		testPatterns:   append([]string(nil), defaultTestPatterns...),
-		extensions:     append([]string(nil), defaultExtensions...),
-		pipLinkPattern: defaultPipLinkPattern,
+		enabled:            true,
+		libraryName:        defaultLibraryName,
+		testName:           defaultTestName,
+		libraryKind:        defaultLibraryKind,
+		testKind:           defaultTestKind,
+		visibility:         append([]string(nil), defaultVisibility...),
+		testPatterns:       append([]string(nil), defaultTestPatterns...),
+		extensions:         append([]string(nil), defaultExtensions...),
+		pipLinkPattern:     defaultPipLinkPattern,
+		labelNormalization: snakeCaseNormalization,
 	}
 }
 

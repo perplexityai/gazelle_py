@@ -31,6 +31,17 @@ const (
 	// table. Set this when working with rules_python's pip_parse, which is
 	// already configured to read the same file.
 	directiveManifest = "python_manifest_file_name"
+	// directivePythonRoot marks the current Bazel package as the Python
+	// project root: dotted import paths under it are relative to this
+	// directory (not the workspace root). Set on a parent BUILD file in
+	// monorepos with multiple Python projects sharing one workspace.
+	directivePythonRoot = "python_root"
+	// directiveResolveSiblingImports toggles whether bare-module imports
+	// (`from app import X`) resolve as siblings of the importer's package.
+	directiveResolveSiblingImports = "python_resolve_sibling_imports"
+	// directiveLabelNormalization controls distribution-name normalization
+	// when rendering pip labels: snake_case (default) / pep503 / none.
+	directiveLabelNormalization = "python_label_normalization"
 )
 
 // RegisterFlags is a no-op — all configuration is via BUILD-file directives.
@@ -54,6 +65,9 @@ func (l *pyLang) KnownDirectives() []string {
 		directiveLabelConvention,
 		directiveTestData,
 		directiveManifest,
+		directivePythonRoot,
+		directiveResolveSiblingImports,
+		directiveLabelNormalization,
 	}
 }
 
@@ -70,7 +84,7 @@ func (l *pyLang) Configure(c *config.Config, rel string, f *rule.File) {
 
 	if f != nil {
 		for _, d := range f.Directives {
-			applyDirective(cfg, d)
+			applyDirective(cfg, d, rel)
 		}
 	}
 
@@ -81,7 +95,7 @@ func (l *pyLang) Configure(c *config.Config, rel string, f *rule.File) {
 	}
 }
 
-func applyDirective(cfg *pyConfig, d rule.Directive) {
+func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 	val := strings.TrimSpace(d.Value)
 	switch d.Key {
 	case directiveEnabled:
@@ -134,6 +148,22 @@ func applyDirective(cfg *pyConfig, d rule.Directive) {
 	case directiveManifest:
 		if val != "" {
 			cfg.manifestPath = val
+		}
+	case directivePythonRoot:
+		// The directive marks the current package as the Python root. We
+		// store the workspace-relative path (`rel`) on the config; values
+		// to the directive itself are ignored, mirroring rules_python.
+		cfg.pythonRoot = rel
+	case directiveResolveSiblingImports:
+		cfg.resolveSiblingImports = parseBool(val, cfg.resolveSiblingImports)
+	case directiveLabelNormalization:
+		switch strings.ToLower(val) {
+		case "pep503":
+			cfg.labelNormalization = pep503Normalization
+		case "none":
+			cfg.labelNormalization = noneNormalization
+		case "snake_case", "":
+			cfg.labelNormalization = snakeCaseNormalization
 		}
 	}
 }
