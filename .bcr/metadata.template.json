@@ -5,6 +5,16 @@
             "name": "Long Ho",
             "email": "holevietlong@gmail.com",
             "github": "longlho"
+        },
+        {
+            "name": "Ravi Agarwal",
+            "email": "ravi@perplexity.ai",
+            "github": "ravi-pplx"
+        },
+        {
+            "name": "Alex Langenfeld",
+            "email": "alex.langenfeld@perplexity.ai",
+            "github": "alex-ppl-ai"
         }
     ],
     "repository": ["github:hermeticbuild/gazelle_py"],
