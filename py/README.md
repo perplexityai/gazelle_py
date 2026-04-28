@@ -57,7 +57,7 @@ sequenceDiagram
     Rs-->>FFI: PyResponseResult bytes
     FFI-->>Gen: []FileImports (modules + comments + has_main)
     Gen->>Gen: parseAnnotations(comments)
-    Gen-->>Gz: py_library + py_test (with srcs only; deps not yet set)
+    Gen-->>Gz: py_library + py_test — srcs only, deps not yet set
 
     Gz->>Idx: index Imports() specs (pkg, pkg.*, pkg.x for each src)
 
