@@ -7,8 +7,8 @@ would get a fastbuild rust binary inside their gazelle binary.
 
 with_cfg forces compilation_mode=opt and the release rustc flags
 (panic=abort, codegen-units=1, thin LTO, strip) on the staticlib and its
-transitive deps. The transition propagates so @crates// crates are
-optimized too.
+transitive deps. The transition propagates so @gazelle_py_crates//
+crates are optimized too.
 """
 
 load("@rules_rs//rs:rust_static_library.bzl", "rust_static_library")
