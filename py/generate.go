@@ -136,8 +136,9 @@ func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResu
 //	library: "server"      → //apps/server:server (Bazel shortens to //apps/server)
 //	test:    "server_test" → //apps/server:server_test
 //
-// Both can be overridden per-tree via the py_library_name / py_test_name
-// directives. At the repo root (rel = ""), where there's no basename to
+// Both can be overridden per-tree via the python_library_naming_convention /
+// python_test_naming_convention directives. At the repo root (rel = ""),
+// where there's no basename to
 // derive from, library falls back to "lib" and test to "test".
 func resolveRuleNames(cfg *pyConfig, rel string) (libName, testName string) {
 	base := filepath.Base(rel)

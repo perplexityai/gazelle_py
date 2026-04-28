@@ -1,6 +1,6 @@
 load("@gazelle//:def.bzl", "gazelle", "gazelle_binary")
 
-# gazelle:py_visibility //visibility:public
+# gazelle:python_visibility //visibility:public
 
 gazelle_binary(
     name = "gazelle_bin",

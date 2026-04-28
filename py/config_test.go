@@ -7,15 +7,25 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
-func TestApplyDirective_Bools(t *testing.T) {
+func TestApplyDirective_Enabled(t *testing.T) {
 	cfg := newPyConfig()
+	// rules_python's verbatim values.
+	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "disabled"})
+	if cfg.enabled {
+		t.Fatalf("python_extension disabled: cfg.enabled = true")
+	}
+	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "enabled"})
+	if !cfg.enabled {
+		t.Fatalf("python_extension enabled: cfg.enabled = false")
+	}
+	// Bool ergonomic aliases.
 	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "false"})
 	if cfg.enabled {
-		t.Fatalf("py_enabled false: cfg.enabled = true")
+		t.Fatalf("python_extension false: cfg.enabled = true")
 	}
 	applyDirective(cfg, rule.Directive{Key: directiveEnabled, Value: "true"})
 	if !cfg.enabled {
-		t.Fatalf("py_enabled true: cfg.enabled = false")
+		t.Fatalf("python_extension true: cfg.enabled = false")
 	}
 }
 
@@ -25,7 +35,7 @@ func TestApplyDirective_Strings(t *testing.T) {
 	applyDirective(cfg, rule.Directive{Key: directiveTestName, Value: "spec"})
 	applyDirective(cfg, rule.Directive{Key: directiveLibraryKind, Value: "my_lib"})
 	applyDirective(cfg, rule.Directive{Key: directiveTestKind, Value: "my_test"})
-	applyDirective(cfg, rule.Directive{Key: directivePipLinkPattern, Value: "@my_pip//{pkg}"})
+	applyDirective(cfg, rule.Directive{Key: directiveLabelConvention, Value: "@my_pip//{pkg}"})
 
 	if cfg.libraryName != "src" {
 		t.Errorf("libraryName = %q", cfg.libraryName)
@@ -56,7 +66,7 @@ func TestApplyDirective_Visibility(t *testing.T) {
 func TestApplyDirective_AppendDirectives(t *testing.T) {
 	cfg := newPyConfig()
 	applyDirective(cfg, rule.Directive{Key: directiveTestPattern, Value: "*_check.py"})
-	applyDirective(cfg, rule.Directive{Key: directiveExtension, Value: ".pyi"})
+	applyDirective(cfg, rule.Directive{Key: directiveSourceExtension, Value: ".pyi"})
 	applyDirective(cfg, rule.Directive{Key: directiveTestData, Value: "//:fixtures"})
 
 	if !contains(cfg.testPatterns, "*_check.py") {

@@ -9,22 +9,28 @@ import (
 )
 
 // All directives this plugin recognizes. Keep in sync with README.md.
+//
+// Directive keys mirror rules_python's gazelle plugin so consumers can
+// switch between the two without rewriting their BUILD-file directives.
+// One exception: rules_python uses `python_extension` for the on/off
+// toggle; we keep that meaning and use `python_source_extension` for
+// our file-extensions list (where rules_python hardcodes `.py`/`.pyi`).
 const (
-	directiveEnabled        = "py_enabled"
-	directiveLibraryName    = "py_library_name"
-	directiveTestName       = "py_test_name"
-	directiveLibraryKind    = "py_library_kind"
-	directiveTestKind       = "py_test_kind"
-	directiveVisibility     = "py_visibility"
-	directiveTestPattern    = "py_test_pattern"
-	directiveExtension      = "py_extension"
-	directivePipLinkPattern = "py_pip_link_pattern"
-	directiveTestData       = "py_test_data"
+	directiveEnabled         = "python_extension"
+	directiveLibraryName     = "python_library_naming_convention"
+	directiveTestName        = "python_test_naming_convention"
+	directiveLibraryKind     = "python_library_kind"
+	directiveTestKind        = "python_test_kind"
+	directiveVisibility      = "python_visibility"
+	directiveTestPattern     = "python_test_file_pattern"
+	directiveSourceExtension = "python_source_extension"
+	directiveLabelConvention = "python_label_convention"
+	directiveTestData        = "python_test_data"
 	// directiveManifest points at a gazelle_python.yaml file (relative to repo
 	// root) whose `modules_mapping` overrides our internal import → distribution
 	// table. Set this when working with rules_python's pip_parse, which is
 	// already configured to read the same file.
-	directiveManifest = "py_manifest"
+	directiveManifest = "python_manifest_file_name"
 )
 
 // RegisterFlags is a no-op — all configuration is via BUILD-file directives.
@@ -44,8 +50,8 @@ func (l *pyLang) KnownDirectives() []string {
 		directiveTestKind,
 		directiveVisibility,
 		directiveTestPattern,
-		directiveExtension,
-		directivePipLinkPattern,
+		directiveSourceExtension,
+		directiveLabelConvention,
 		directiveTestData,
 		directiveManifest,
 	}
@@ -79,7 +85,16 @@ func applyDirective(cfg *pyConfig, d rule.Directive) {
 	val := strings.TrimSpace(d.Value)
 	switch d.Key {
 	case directiveEnabled:
-		cfg.enabled = parseBool(val, cfg.enabled)
+		// rules_python takes "enabled"/"disabled" verbatim; we additionally
+		// accept the bool forms (true/false/1/0/yes/no/on/off) for ergonomics.
+		switch strings.ToLower(val) {
+		case "enabled":
+			cfg.enabled = true
+		case "disabled":
+			cfg.enabled = false
+		default:
+			cfg.enabled = parseBool(val, cfg.enabled)
+		}
 	case directiveLibraryName:
 		if val != "" {
 			cfg.libraryName = val
@@ -104,11 +119,11 @@ func applyDirective(cfg *pyConfig, d rule.Directive) {
 		if val != "" {
 			cfg.testPatterns = appendUnique(cfg.testPatterns, val)
 		}
-	case directiveExtension:
+	case directiveSourceExtension:
 		if val != "" {
 			cfg.extensions = appendUnique(cfg.extensions, val)
 		}
-	case directivePipLinkPattern:
+	case directiveLabelConvention:
 		if val != "" {
 			cfg.pipLinkPattern = val
 		}
