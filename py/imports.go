@@ -38,7 +38,15 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 		return nil
 	}
 
-	pkg := strings.ReplaceAll(f.Pkg, "/", ".")
+	// Strip the python_root prefix so dotted import paths are interpreted
+	// relative to it. With pythonRoot="backend", `backend/api/` indexes as
+	// `api` (and `api.*`) so source code's `from api.x import …` resolves.
+	rel := f.Pkg
+	if cfg.pythonRoot != "" {
+		rel = strings.TrimPrefix(rel, cfg.pythonRoot)
+		rel = strings.TrimPrefix(rel, "/")
+	}
+	pkg := strings.ReplaceAll(rel, "/", ".")
 	if pkg == "" {
 		return nil
 	}
