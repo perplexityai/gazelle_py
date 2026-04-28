@@ -6,6 +6,7 @@ Each subdirectory is a self-contained Bazel workspace exercising the `py` plugin
 |---|---|
 | [`basic/`](basic) | One Python package, stdlib-only imports, a smoke test. **No internal cross-package references, no PyPI deps.** Smallest possible useful setup. |
 | [`composite/`](composite) | Multiple packages with cross-package imports (`from packages.core.types import ...`). Verifies the resolver's first-party RuleIndex wildcard match. |
+| [`edge_cases/`](edge_cases) | Imports nested inside every kind of code block — function bodies, class bodies, `if TYPE_CHECKING:`, `try` / `except ImportError` fallbacks, conditional `if sys.version_info` branches, multi-target `import a, b`. Regression net for the ruff visitor's recursion. |
 
 Each workspace points its `MODULE.bazel` at the parent `gazelle_py` repo via `local_path_override`, so changes to the plugin's Go source apply on the next `bazel run //:gazelle` without any release dance.
 
