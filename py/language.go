@@ -29,9 +29,12 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
-// languageName is the unique identifier for this Gazelle extension. It must
-// match the prefix used in directive keys (py_enabled, py_library_name, …).
-const languageName = "py"
+// languageName is the unique identifier for this Gazelle extension. It also
+// determines the `Lang` key in resolve.ImportSpec entries this plugin writes
+// to / reads from gazelle's RuleIndex. Set to "python" to match
+// rules_python's gazelle plugin so a `# gazelle:resolve python <import>
+// <label>` directive routes through both extensions identically.
+const languageName = "python"
 
 // pyLang implements the language.Language interface from Gazelle.
 type pyLang struct {

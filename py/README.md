@@ -73,7 +73,7 @@ The Rust crate at [`../crates/import_extractor`](../crates/import_extractor) is 
 
 ## Resolution decision tree
 
-For each import the resolver walks a "possible modules" ladder, trying progressively shorter dotted prefixes (`a.b.c.d` → `a.b.c` → `a.b` → `a`). At each prefix it checks every source in order before stepping shorter — that ordering matters: a single `# gazelle:resolve py <broad> <label>` directive must NOT steal an import that's actually a deeper, more specific submodule provided by another rule.
+For each import the resolver walks a "possible modules" ladder, trying progressively shorter dotted prefixes (`a.b.c.d` → `a.b.c` → `a.b` → `a`). At each prefix it checks every source in order before stepping shorter — that ordering matters: a single `# gazelle:resolve python <broad> <label>` directive must NOT steal an import that's actually a deeper, more specific submodule provided by another rule.
 
 ```mermaid
 flowchart TD
@@ -99,19 +99,21 @@ flowchart TD
 
 All directives are placed in `BUILD.bazel` as `# gazelle:<key> <value>` and inherit into subdirectories.
 
+All directive keys mirror [rules_python's gazelle plugin](https://rules-python.readthedocs.io/en/latest/gazelle/docs/index.html) so consumers can swap between the two without rewriting their BUILD-file directives. The one exception is `python_source_extension`, which has no rules_python analog — they hardcode `.py`/`.pyi`.
+
 | Directive | Default | Notes |
 |---|---|---|
-| `py_enabled` | `true` | Disable per-tree to skip directories owned by another tool. |
-| `py_library_name` | _(package basename, e.g. `server` for `//apps/server`)_ | Name of the generated library rule. |
-| `py_test_name` | _(package basename + `_test`)_ | Name of the generated test rule. |
-| `py_library_kind` | `py_library` | Override emitted library kind without `map_kind`. |
-| `py_test_kind` | `py_test` | Override emitted test kind without `map_kind`. |
-| `py_visibility` | `//visibility:public` | Space-separated label list. |
-| `py_test_pattern` | `*_test.py`, `test_*.py`, `tests/**`, `test/**` | Repeatable; appended. |
-| `py_extension` | `.py` | Repeatable; appended. |
-| `py_pip_link_pattern` | `@pip//{pkg}` | Template; `{pkg}` is replaced with the resolved distribution name. |
-| `py_test_data` | _(empty)_ | Repeatable; appended to every test rule's `data`. |
-| `py_manifest` | _(empty)_ | Workspace-relative path to a `gazelle_python.yaml` (rules_python format). When set, its `modules_mapping` overrides built-in import → distribution heuristics, and its `pip_repository.name` swaps the repo segment of `py_pip_link_pattern`. |
+| `python_extension` | `enabled` | `enabled` / `disabled` (also accepts `true`/`false`). Disable per-tree to skip directories owned by another tool. |
+| `python_library_naming_convention` | _(package basename, e.g. `server` for `//apps/server`)_ | Name of the generated library rule. |
+| `python_test_naming_convention` | _(package basename + `_test`)_ | Name of the generated test rule. |
+| `python_library_kind` | `py_library` | Override emitted library kind without `map_kind`. (Ours; rules_python doesn't have a kind override directive.) |
+| `python_test_kind` | `py_test` | Override emitted test kind without `map_kind`. |
+| `python_visibility` | `//visibility:public` | Space-separated label list. |
+| `python_test_file_pattern` | `*_test.py`, `test_*.py`, `tests/**`, `test/**` | Repeatable; appended. |
+| `python_source_extension` | `.py` | Repeatable; appended. (Ours; rules_python hardcodes `.py`/`.pyi`.) |
+| `python_label_convention` | `@pip//{pkg}` | Template; `{pkg}` is replaced with the resolved distribution name. |
+| `python_test_data` | _(empty)_ | Repeatable; appended to every test rule's `data`. |
+| `python_manifest_file_name` | _(empty)_ | Workspace-relative path to a `gazelle_python.yaml` (rules_python format). When set, its `modules_mapping` overrides built-in import → distribution heuristics, and its `pip_repository.name` swaps the repo segment of `python_label_convention`. |
 
 ### Per-source-file annotations
 
@@ -130,7 +132,7 @@ import baz
 ## How import resolution works
 
 1. `pyproject.toml`, `requirements.txt`, and `requirements.in` (if present) are read once at the repo root for declared distribution names.
-2. If `py_manifest` points at a `gazelle_python.yaml`, the file's `modules_mapping` is loaded once on first use.
+2. If `python_manifest_file_name` points at a `gazelle_python.yaml`, the file's `modules_mapping` is loaded once on first use.
 3. Per import, run the possible-modules ladder shown above.
 4. **Test rules** also receive the surrounding library's imports plus synthetic imports for every ancestor directory containing a `conftest.py` — those get resolved like any other import, so a dedicated `:conftest` `py_library` target is automatically picked up while plain `from x.conftest import …` statements (and self-imports) are dropped.
 
