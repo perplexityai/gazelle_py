@@ -77,9 +77,9 @@ For each import the resolver walks a "possible modules" ladder, trying progressi
 
 ```mermaid
 flowchart TD
-    Start([import \"a.b.c.d\"]) --> Skip{relative<br/>or in ignore set?}
+    Start([import a.b.c.d]) --> Skip{relative<br/>or in ignore set?}
     Skip -- yes --> Drop[no dep]
-    Skip -- no --> P1[try \"a.b.c.d\"]
+    Skip -- no --> P1[try a.b.c.d]
     P1 --> P1a{gazelle:resolve<br/>directive?}
     P1a -- yes --> Use[emit dep]
     P1a -- no --> P1b{in manifest?}
@@ -88,11 +88,11 @@ flowchart TD
     P1c -- yes --> Use
     P1c -- no --> P1d{stdlib?}
     P1d -- yes --> Drop
-    P1d -- no --> P2[try \"a.b.c\"]
+    P1d -- no --> P2[try a.b.c]
     P2 --> dots[…]
     dots --> Final{any prefix<br/>matched?}
     Final -- yes --> Use
-    Final -- no --> Pip[fallback: @pip//&lt;dist&gt;\nif declared in pyproject]
+    Final -- no --> Pip[fallback: @pip//&lt;dist&gt;<br/>if declared in pyproject]
 ```
 
 ## Directives
