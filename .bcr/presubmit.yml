@@ -9,12 +9,18 @@ bcr_test_module:
   module_path: "bcr_test"
   matrix:
     platform:
-      - debian11
+      # macOS + Ubuntu only — Debian's coverage overlaps Ubuntu's (both glibc
+      # Linux), and our own CI doesn't test on it either, so the BCR cell
+      # only adds runner cost without catching anything new.
       - macos
       - ubuntu2204
     bazel:
+      # bazelisk wildcard syntax accepts `<major>.x` / `<major>.*`, not
+      # `<major>.<minor>.x` — `8.5.x` errors out with "invalid version".
+      # The supported floor (rules_rs's) is 8.5.0; bazelisk's `8.x`
+      # resolves to the latest 8.y, which currently is comfortably above.
       - 9.x
-      - 8.5.x
+      - 8.x
   tasks:
     run_tests:
       name: bcr_test on ${{ platform }} / bazel ${{ bazel }}
