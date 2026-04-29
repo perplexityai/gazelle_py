@@ -1,9 +1,11 @@
 matrix:
   # macOS + Ubuntu only — Debian's coverage overlaps Ubuntu's (both glibc
   # Linux), and our own CI doesn't test on it either, so the BCR cell only
-  # adds runner cost without catching anything new.
+  # adds runner cost without catching anything new. `macos_arm64` (not bare
+  # `macos`, which still points at Intel runners) since rules_rs's macOS
+  # Rust toolchains target arm64 by default.
   platform:
-    - macos
+    - macos_arm64
     - ubuntu2204
   bazel:
     # bazelisk wildcard syntax accepts `<major>.x` / `<major>.*`, not
