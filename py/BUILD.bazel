@@ -38,6 +38,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//py/proto:import_extractor_go_proto",
+        "@com_github_bmatcuk_doublestar_v4//:doublestar",
         "@gazelle//config",
         "@gazelle//label",
         "@gazelle//language",
