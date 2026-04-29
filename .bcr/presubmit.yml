@@ -9,7 +9,9 @@ bcr_test_module:
   module_path: "bcr_test"
   matrix:
     platform:
-      - debian11
+      # macOS + Ubuntu only — Debian's coverage overlaps Ubuntu's (both glibc
+      # Linux), and our own CI doesn't test on it either, so the BCR cell
+      # only adds runner cost without catching anything new.
       - macos
       - ubuntu2204
     bazel:
