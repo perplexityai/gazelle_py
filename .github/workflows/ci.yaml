@@ -58,14 +58,17 @@ jobs:
         run: bazelisk test //...
 
   # Examples are linux-only — they exercise the BUILD-generation path and
-  # don't add platform-specific coverage worth the macOS runner cost.
+  # don't add platform-specific coverage worth the macOS runner cost. We run
+  # all examples sequentially in a single job (per bazel version) rather
+  # than fanning them out into a matrix — the BUILD-gen path is fast enough
+  # that the wall-clock penalty is small, and the runner-minute saving is
+  # large.
   examples:
-    name: example ${{ matrix.example }} / bazel ${{ matrix.bazel }}
+    name: examples / bazel ${{ matrix.bazel }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        example: [basic, composite, edge_cases, file_mode, project_mode, naming_conventions]
         bazel: ["9.0.0", "8.6.0"]
 
     steps:
@@ -75,18 +78,20 @@ jobs:
         uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workflow }}-examples-${{ matrix.example }}-bazel${{ matrix.bazel }}
+          disk-cache: ${{ github.workflow }}-examples-bazel${{ matrix.bazel }}
           repository-cache: true
 
-      - name: bazel test //... (examples/${{ matrix.example }})
-        working-directory: examples/${{ matrix.example }}
-        env:
-          USE_BAZEL_VERSION: ${{ matrix.bazel }}
-        run: bazelisk test //...
-
-      - name: gazelle idempotency check (examples/${{ matrix.example }})
-        working-directory: examples/${{ matrix.example }}
+      - name: bazel test + gazelle diff for every example
         env:
           USE_BAZEL_VERSION: ${{ matrix.bazel }}
         run: |
-          bazelisk run //:gazelle -- update -mode=diff
+          set -euo pipefail
+          for example in basic composite edge_cases file_mode project_mode naming_conventions; do
+            echo "::group::examples/$example"
+            (
+              cd "examples/$example"
+              bazelisk test //...
+              bazelisk run //:gazelle -- update -mode=diff
+            )
+            echo "::endgroup::"
+          done
