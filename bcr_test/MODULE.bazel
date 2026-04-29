@@ -12,3 +12,9 @@ local_path_override(
     module_name = "gazelle_py",
     path = "..",
 )
+
+# Source of @llvm//constraints/libc:gnu.2.28 — used by //platforms:local_gnu
+# below, which we pin as host_platform on Linux to satisfy rules_rs's Rust
+# toolchain target_compatible_with.
+bazel_dep(name = "llvm", version = "0.7.3")
+bazel_dep(name = "platforms", version = "1.0.0")

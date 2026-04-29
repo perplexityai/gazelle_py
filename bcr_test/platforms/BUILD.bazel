@@ -1,0 +1,18 @@
+# Local copy of the gazelle_py top-level //platforms:local_gnu so the
+# `host_platform` flag in ../.bazelrc can use a label inside this test
+# workspace's own main repo (`//platforms:local_gnu`) instead of crossing
+# into `@gazelle_py//platforms:local_gnu`.
+#
+# Why we need that: BCR's runner shells out to `bazel info` before any
+# build, and `info` doesn't trigger module resolution. Any `--host_platform`
+# label that points outside the main repo fails to parse with "Repository
+# '@@gazelle_py' is not defined" before the build can even start. Keeping
+# the platform inside the main repo (this directory) sidesteps that — main
+# repo labels are always resolvable, even pre-loading.
+platform(
+    name = "local_gnu",
+    constraint_values = [
+        "@llvm//constraints/libc:gnu.2.28",
+    ],
+    parents = ["@platforms//host"],
+)

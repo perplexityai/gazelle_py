@@ -5,15 +5,13 @@
 # top-level .bazelrc, so building @gazelle_py//... directly from BCR fails
 # on Ubuntu without this pin. macOS doesn't need it.
 common --enable_platform_specific_config
-# Scope the host_platform pin to build/test (not `common`). BCR's runner
-# does `bazel info` before any actual build, and `info` doesn't resolve
-# module deps — so a `common:linux --host_platform=@gazelle_py//...`
-# would fail with "Repository '@@gazelle_py' is not defined" before
-# anything useful happens. `build:` and `test:` only apply to those
-# subcommands, by which point bzlmod has loaded our deps and the label
-# resolves cleanly.
-build:linux --host_platform=@gazelle_py//platforms:local_gnu
-test:linux --host_platform=@gazelle_py//platforms:local_gnu
+# Use the platform defined inside this main repo (`//platforms:local_gnu`)
+# instead of `@gazelle_py//platforms:local_gnu`. BCR's runner shells out
+# to `bazel info` before any build, and `info` doesn't trigger module
+# resolution — any --host_platform label outside the main repo fails to
+# parse with "Repository '@@gazelle_py' is not defined" before the build
+# can even start. Main-repo labels are always resolvable.
+common:linux --host_platform=//platforms:local_gnu
 
 build --show_result=0
 test --test_output=errors
