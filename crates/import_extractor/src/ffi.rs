@@ -58,7 +58,7 @@ pub unsafe extern "C" fn ie_free(ptr: *mut u8, len: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use import_extractor_proto::import_extractor as pb;
+    use import_extractor_proto::gazelle_py::import_extractor as pb;
     use prost::Message;
     use std::ptr;
 

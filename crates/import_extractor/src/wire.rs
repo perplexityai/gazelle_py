@@ -1,5 +1,5 @@
 use crate::py;
-use import_extractor_proto::import_extractor as pb;
+use import_extractor_proto::gazelle_py::import_extractor as pb;
 use prost::Message;
 use rayon::prelude::*;
 
