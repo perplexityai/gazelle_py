@@ -15,6 +15,11 @@
             "name": "Alex Langenfeld",
             "email": "alex.langenfeld@perplexity.ai",
             "github": "alex-ppl-ai"
+        },
+        {
+            "name": "Ryan Siu",
+            "email": "ryansiu@perplexity.ai",
+            "github": "ryansiu-pplx"
         }
     ],
     "repository": ["github:perplexityai/gazelle_py"],
