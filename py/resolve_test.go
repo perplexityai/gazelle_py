@@ -112,6 +112,27 @@ dependencies = [
 	}
 }
 
+func TestScanPyProjectDeps_ExtrasInStrings(t *testing.T) {
+	// `]` inside a string literal (extras like `celery[redis]`) must not
+	// terminate the array — every dep should still be captured.
+	content := `
+[project]
+name = "myproj"
+dependencies = [
+  "aiohttp==3.11.16",
+  "celery[redis]>=5.3.0,<6",
+  "datadog==0.51.0",
+  "ddtrace==2.18.1",
+  "requests[security]==2.33.1",
+]
+`
+	got := scanPyProjectDeps(content)
+	want := []string{"aiohttp", "celery", "datadog", "ddtrace", "requests"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("scanPyProjectDeps with extras = %v, want %v", got, want)
+	}
+}
+
 func TestDeduplicateAndSort(t *testing.T) {
 	cases := []struct {
 		in   []string

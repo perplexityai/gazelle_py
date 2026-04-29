@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/bazel-gazelle/repo"
@@ -389,33 +390,27 @@ func (l *pyLang) loadProjectDeps(repoRoot string) {
 	}
 }
 
-// scanPyProjectDeps does a regex-free best-effort scan of pyproject.toml's
-// `[project] dependencies = [...]` array. Doesn't pretend to be a TOML
-// parser — just grabs the obvious literal-string entries.
+// scanPyProjectDeps decodes pyproject.toml's `[project].dependencies` array
+// and returns each entry's distribution name (after parseRequirementLine
+// strips extras and version specifiers).
+//
+// We use BurntSushi/toml rather than hand-rolled bracket scanning because
+// dependency strings can legitimately contain `]` (extras like
+// `celery[redis]`), which a naive `strings.Index(content, "]")` would
+// mistake for the array terminator.
 func scanPyProjectDeps(content string) []string {
+	var doc struct {
+		Project struct {
+			Dependencies []string `toml:"dependencies"`
+		} `toml:"project"`
+	}
+	if _, err := toml.Decode(content, &doc); err != nil {
+		// Best-effort: a malformed pyproject.toml shouldn't fail the
+		// gazelle run; we just skip its declared deps.
+		return nil
+	}
 	var out []string
-	idx := strings.Index(content, "[project]")
-	if idx < 0 {
-		return nil
-	}
-	tail := content[idx:]
-	depIdx := strings.Index(tail, "dependencies")
-	if depIdx < 0 {
-		return nil
-	}
-	tail = tail[depIdx:]
-	open := strings.Index(tail, "[")
-	close := strings.Index(tail, "]")
-	if open < 0 || close < 0 || close < open {
-		return nil
-	}
-	body := tail[open+1 : close]
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		line = strings.TrimSuffix(line, ",")
-		if len(line) >= 2 && (line[0] == '"' || line[0] == '\'') {
-			line = line[1 : len(line)-1]
-		}
+	for _, line := range doc.Project.Dependencies {
 		if name := parseRequirementLine(line); name != "" {
 			out = append(out, name)
 		}
