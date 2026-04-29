@@ -19,6 +19,17 @@ bazel_dep(name = "with_cfg.bzl", version = "0.14.6")
 # host platform at //platforms:local_gnu.
 bazel_dep(name = "llvm", version = "0.7.3")
 
+# Expose @macos_sdk so consumers cross-compiling this module to darwin
+# (e.g. via `--platforms=@rules_rs//rs/platforms:aarch64-apple-darwin`)
+# can resolve the `@macos_sdk//sysroot` reference that rules_rs's macOS
+# rust toolchain emits for darwin targets. Without this, every cross-compile
+# fails with `No repository visible as '@macos_sdk' from repository
+# '@@gazelle_py+'` because rules_rs 0.0.64+ enforces strict module-level
+# visibility on repos created by other modules' extensions.
+# Validated by examples/cross_compile.
+osx = use_extension("@llvm//extensions:osx.bzl", "osx")
+use_repo(osx, "macos_sdk")
+
 # rules_rust facade — exposes @rules_rust so .bazelrc's --config=opt and
 # the with_cfg wrapper in //crates/import_extractor:opt.bzl can reference
 # @rules_rust//:extra_rustc_flags. Also keeps rules_rs's internal loads

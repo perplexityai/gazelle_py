@@ -1,0 +1,25 @@
+module(
+    name = "cross_compile_example",
+    version = "0.0.0",
+)
+
+# Pin rules_rs to a version that enforces strict module-level visibility on
+# `@macos_sdk` from other modules' extensions — that's the version where
+# cross-compiling gazelle_py to darwin surfaces the missing-repo regression
+# the gazelle_py MODULE.bazel @macos_sdk re-export guards against.
+bazel_dep(name = "rules_rs", version = "0.0.65")
+bazel_dep(name = "gazelle", version = "0.50.0")
+bazel_dep(name = "llvm", version = "0.7.5")
+
+bazel_dep(name = "gazelle_py", version = "0.0.0")
+local_path_override(
+    module_name = "gazelle_py",
+    path = "../..",
+)
+
+# Register @llvm's hermetic clang toolchain so analysis can resolve a cc
+# toolchain for darwin targets on a non-darwin host (e.g. CI on linux).
+# Without this, `--nobuild --platforms=...:aarch64-apple-darwin` fails
+# during toolchain resolution before reaching the @macos_sdk reference
+# we actually want this example to exercise.
+register_toolchains("@llvm//toolchain:all")
