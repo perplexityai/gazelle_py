@@ -1,0 +1,14 @@
+module(
+    name = "gazelle_py_bcr_test",
+    version = "0.0.0",
+)
+
+# Pulls in the published gazelle_py via the surrounding tarball. BCR's
+# `bcr_test_module` flow extracts the source archive at the repo root and
+# cd's into this directory, so `path = ".."` lands us back on the just-
+# released module.
+bazel_dep(name = "gazelle_py", version = "0.0.0")
+local_path_override(
+    module_name = "gazelle_py",
+    path = "..",
+)
