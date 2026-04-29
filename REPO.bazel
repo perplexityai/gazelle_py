@@ -1,6 +1,9 @@
-# Each subdirectory of examples/ is its own self-contained Bazel workspace
-# (its own MODULE.bazel + .bazelrc). The parent repo's `bazel ... //...`
-# walks must skip them so the parent's MODULE doesn't try to resolve the
-# examples' BUILD-file load() statements (which reference modules like
-# rules_python that the parent doesn't pull in).
-ignore_directories(["examples"])
+# `examples/` and `bcr_test/` are self-contained Bazel workspaces (each has
+# its own MODULE.bazel + .bazelrc). The parent repo's `bazel ... //...`
+# walks must skip them so the parent's MODULE doesn't try to resolve their
+# BUILD-file load() statements (which reference modules like rules_python
+# that the parent doesn't pull in).
+ignore_directories([
+    "bcr_test",
+    "examples",
+])
