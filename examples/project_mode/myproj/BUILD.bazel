@@ -1,0 +1,23 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+# Roll the entire myproj/ subtree (main.py + models/ + utils/) into a single
+# library. Subdirectories must not have their own BUILD files — Bazel would
+# otherwise treat them as separate packages and refuse the cross-boundary srcs.
+# gazelle:python_generation_mode project
+
+py_library(
+    name = "myproj",
+    srcs = [
+        "main.py",
+        "models/user.py",
+        "utils/format.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+py_test(
+    name = "myproj_test",
+    srcs = ["main_test.py"],
+    main = "main_test.py",
+    deps = [":myproj"],
+)

@@ -65,7 +65,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        example: [basic, composite, edge_cases]
+        example: [basic, composite, edge_cases, file_mode, project_mode, naming_conventions]
         bazel: ["9.0.0", "8.6.0"]
 
     steps:

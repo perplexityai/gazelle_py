@@ -1,0 +1,13 @@
+load("@gazelle//:def.bzl", "gazelle", "gazelle_binary")
+
+# gazelle:python_visibility //visibility:public
+
+gazelle_binary(
+    name = "gazelle_bin",
+    languages = ["@gazelle_py//py"],
+)
+
+gazelle(
+    name = "gazelle",
+    gazelle = ":gazelle_bin",
+)

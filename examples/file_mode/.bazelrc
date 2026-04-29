@@ -1,0 +1,12 @@
+build --registry=https://bcr.bazel.build
+
+# Pin the host platform on Linux so rules_rs's Rust toolchains (used by the
+# gazelle plugin's import_extractor staticlib) match the Linux GNU libc
+# constraint they tag via target_compatible_with. macOS doesn't need this.
+common --enable_platform_specific_config
+common:linux --host_platform=@gazelle_py//platforms:local_gnu
+
+build --show_result=0
+test --test_output=errors
+
+try-import %workspace%/.bazelrc.user

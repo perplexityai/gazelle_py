@@ -46,15 +46,18 @@ func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResu
 		return language.GenerateResult{}
 	}
 
-	specs := pythonFileSpecs(cfg, args.Dir, args.Rel, args.RegularFiles)
+	var specs []FileSpec
 	if cfg.generationMode == generationModeProject {
-		// Walk the subtree below this directory and append every .py we find
-		// (excluding nested project subdirs and BUILD-pinned subtrees, which
-		// Bazel would refuse to glob into).
+		// Walk the entire project subtree (including the directive's own
+		// directory) so the rolled-up rule sees every .py file. Subdirs that
+		// already have BUILD files mark Bazel-package boundaries and are
+		// skipped — Bazel refuses to glob across them anyway.
 		walkSpecs, err := walkProjectFiles(cfg, args.Dir, args.Rel)
 		if err == nil {
-			specs = append(specs, walkSpecs...)
+			specs = walkSpecs
 		}
+	} else {
+		specs = pythonFileSpecs(cfg, args.Dir, args.Rel, args.RegularFiles)
 	}
 
 	results, allComments := l.parseSpecs(specs)

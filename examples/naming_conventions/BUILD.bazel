@@ -1,0 +1,22 @@
+load("@gazelle//:def.bzl", "gazelle", "gazelle_binary")
+
+# gazelle:python_visibility //visibility:public
+
+# Apply naming-convention overrides plus skip-empty-init at the workspace
+# root so they inherit into every package below.
+# gazelle:python_library_naming_convention $package_name$_lib
+# gazelle:python_test_naming_convention $package_name$_unittest
+# gazelle:python_skip_empty_init true
+# Comma-separated value REPLACES the defaults (rules_python semantics).
+# Here we accept both classic *_test.py and the alternate *_spec.py form.
+# gazelle:python_test_file_pattern *_spec.py,*_test.py
+
+gazelle_binary(
+    name = "gazelle_bin",
+    languages = ["@gazelle_py//py"],
+)
+
+gazelle(
+    name = "gazelle",
+    gazelle = ":gazelle_bin",
+)

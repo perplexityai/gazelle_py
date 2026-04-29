@@ -102,12 +102,16 @@ bazel run //:gazelle -- update -mode=diff   # idempotency check
 
 The plugin walks the directory tree, parses every `.py` for imports via the Rust extractor, and emits stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) (one per dir with sources) plus [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules (matched against `*_test.py`, `test_*.py`, `tests/**`, `test/**`). `deps` are filled in from a manifest, the first-party `RuleIndex`, or the `pip_parse` repo, in that order.
 
-Two end-to-end example workspaces live under [`examples/`](examples/):
+Self-contained example workspaces live under [`examples/`](examples/):
 
 | Example | What it shows |
 |---|---|
 | [`basic/`](examples/basic) | Single Python package, stdlib-only imports, sibling test. Smallest useful setup. |
 | [`composite/`](examples/composite) | Multi-package layout exercising the first-party `RuleIndex` for cross-directory imports. |
+| [`edge_cases/`](examples/edge_cases) | Nested-block imports (function/class bodies, `if TYPE_CHECKING:`, `try/except ImportError`) — regression net for the ruff visitor. |
+| [`file_mode/`](examples/file_mode) | `python_generation_mode = file` — one library/test rule per `.py` file. |
+| [`project_mode/`](examples/project_mode) | `python_generation_mode = project` — entire subtree rolled into a single library/test rule. |
+| [`naming_conventions/`](examples/naming_conventions) | `$package_name$` naming placeholders, `python_skip_empty_init`, and the comma-list `python_test_file_pattern` replacement. |
 
 Each example points its `MODULE.bazel` at this repo via `local_path_override`.
 
