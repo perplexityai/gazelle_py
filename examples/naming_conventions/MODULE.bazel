@@ -1,0 +1,19 @@
+module(
+    name = "naming_conventions_example",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "rules_python", version = "1.5.4")
+bazel_dep(name = "gazelle", version = "0.50.0")
+
+bazel_dep(name = "gazelle_py", version = "0.0.0")
+local_path_override(
+    module_name = "gazelle_py",
+    path = "../..",
+)
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    is_default = True,
+    python_version = "3.12",
+)

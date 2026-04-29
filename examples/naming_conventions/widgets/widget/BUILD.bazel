@@ -1,0 +1,17 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+py_library(
+    name = "widget_lib",
+    srcs = [
+        "__init__.py",
+        "widget.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+py_test(
+    name = "widget_unittest",
+    srcs = ["widget_spec.py"],
+    main = "widget_spec.py",
+    deps = [":widget_lib"],
+)

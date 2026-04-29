@@ -27,14 +27,16 @@ rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
 use_repo(rules_rust, "rules_rust")
 
 # Rust toolchain — propagates to consumers because their gazelle_binary
-# links our staticlib via cgo and needs to build the rust crate.
+# links our staticlib via cgo and needs to build the rust crate. Pinned to
+# ruff 0.15.10's declared MSRV; we don't use anything beyond what ruff
+# requires, so the right floor is theirs.
 toolchains = use_extension(
     "@rules_rs//rs/toolchains:module_extension.bzl",
     "toolchains",
 )
 toolchains.toolchain(
     edition = "2024",
-    version = "1.95.0",
+    version = "1.92.0",
 )
 use_repo(toolchains, "default_rust_toolchains")
 

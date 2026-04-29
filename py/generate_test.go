@@ -1,6 +1,8 @@
 package py
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -120,6 +122,30 @@ func TestResolveRuleNames(t *testing.T) {
 			wantLib:  "src",
 			wantTest: "spec",
 		},
+		{
+			name: "package_name placeholder expands",
+			cfg: func() *pyConfig {
+				c := newPyConfig()
+				c.libraryName = "$package_name$_lib"
+				c.testName = "$package_name$_unittest"
+				return c
+			}(),
+			rel:      "apps/server",
+			wantLib:  "server_lib",
+			wantTest: "server_unittest",
+		},
+		{
+			name: "placeholder at repo root falls back to defaults",
+			cfg: func() *pyConfig {
+				c := newPyConfig()
+				c.libraryName = "$package_name$"
+				c.testName = "$package_name$_test"
+				return c
+			}(),
+			rel:      "",
+			wantLib:  "lib",
+			wantTest: "test",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -131,6 +157,84 @@ func TestResolveRuleNames(t *testing.T) {
 				t.Errorf("test = %q, want %q", test, c.wantTest)
 			}
 		})
+	}
+}
+
+func TestPkgRelativePath(t *testing.T) {
+	cases := []struct {
+		workspace, pkg, want string
+	}{
+		{"apps/server/main.py", "apps/server", "main.py"},
+		{"apps/server/utils/h.py", "apps/server", "utils/h.py"},
+		{"main.py", "", "main.py"},
+		// Defensive: when the spec doesn't share the package prefix (shouldn't
+		// happen in practice), we return the workspace-relative path unchanged
+		// rather than producing an absolute-looking string.
+		{"other/main.py", "apps/server", "other/main.py"},
+	}
+	for _, c := range cases {
+		got := pkgRelativePath(c.workspace, c.pkg)
+		if got != c.want {
+			t.Errorf("pkgRelativePath(%q, %q) = %q, want %q", c.workspace, c.pkg, got, c.want)
+		}
+	}
+}
+
+func TestPerFileRuleName(t *testing.T) {
+	cases := map[string]string{
+		"main.py":          "main",
+		"helpers.py":       "helpers",
+		"utils/h.py":       "h",
+		"types.pyi":        "types",
+		"foo_test.py":      "foo_test",
+		"tests/api_t.py":   "api_t",
+		"_internal_x.py":   "_internal_x",
+	}
+	for in, want := range cases {
+		if got := perFileRuleName(in); got != want {
+			t.Errorf("perFileRuleName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestIsEmptyPython(t *testing.T) {
+	dir := t.TempDir()
+	cases := []struct {
+		name    string
+		body    string
+		want    bool
+	}{
+		{"truly_empty.py", "", true},
+		{"only_blanks.py", "\n\n   \n", true},
+		{"only_comments.py", "# header\n# another\n\n", true},
+		{"docstring.py", `"""mod doc"""`, false}, // a docstring is real code
+		{"has_pass.py", "pass\n", false},
+		{"has_import.py", "import os\n", false},
+	}
+	for _, c := range cases {
+		path := filepath.Join(dir, c.name)
+		if err := os.WriteFile(path, []byte(c.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := isEmptyPython(path); got != c.want {
+			t.Errorf("isEmptyPython(%q body=%q) = %v, want %v", c.name, c.body, got, c.want)
+		}
+	}
+}
+
+func TestIsEmptyInitOnly(t *testing.T) {
+	dir := t.TempDir()
+	emptyInit := filepath.Join(dir, "__init__.py")
+	if err := os.WriteFile(emptyInit, []byte("# blank package marker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	specs := []FileSpec{{Path: emptyInit, RelPath: "pkg/__init__.py"}}
+	if !isEmptyInitOnly([]string{"__init__.py"}, specs, "pkg") {
+		t.Errorf("expected empty-only __init__.py to be detected")
+	}
+	// More than one src disqualifies — even if __init__.py itself is empty.
+	if isEmptyInitOnly([]string{"__init__.py", "x.py"}, specs, "pkg") {
+		t.Errorf("multi-src package should not be flagged")
 	}
 }
 

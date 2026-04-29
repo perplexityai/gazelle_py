@@ -102,12 +102,16 @@ bazel run //:gazelle -- update -mode=diff   # idempotency check
 
 The plugin walks the directory tree, parses every `.py` for imports via the Rust extractor, and emits stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) (one per dir with sources) plus [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules (matched against `*_test.py`, `test_*.py`, `tests/**`, `test/**`). `deps` are filled in from a manifest, the first-party `RuleIndex`, or the `pip_parse` repo, in that order.
 
-Two end-to-end example workspaces live under [`examples/`](examples/):
+Self-contained example workspaces live under [`examples/`](examples/):
 
 | Example | What it shows |
 |---|---|
 | [`basic/`](examples/basic) | Single Python package, stdlib-only imports, sibling test. Smallest useful setup. |
 | [`composite/`](examples/composite) | Multi-package layout exercising the first-party `RuleIndex` for cross-directory imports. |
+| [`edge_cases/`](examples/edge_cases) | Nested-block imports (function/class bodies, `if TYPE_CHECKING:`, `try/except ImportError`) — regression net for the ruff visitor. |
+| [`file_mode/`](examples/file_mode) | `python_generation_mode = file` — one library/test rule per `.py` file. |
+| [`project_mode/`](examples/project_mode) | `python_generation_mode = project` — entire subtree rolled into a single library/test rule. |
+| [`naming_conventions/`](examples/naming_conventions) | `$package_name$` naming placeholders, `python_skip_empty_init`, and the comma-list `python_test_file_pattern` replacement. |
 
 Each example points its `MODULE.bazel` at this repo via `local_path_override`.
 
@@ -121,6 +125,11 @@ The most common ones:
 |---|---|---|
 | `python_extension` | `enabled` | `enabled` / `disabled` toggle (also accepts `true`/`false`). |
 | `python_visibility` | `//visibility:public` | Visibility for generated rules. |
+| `python_generation_mode` | `package` | `package` / `file` / `project` — one rule per directory, per file, or rolled up across the subtree. |
+| `python_skip_empty_init` | `false` | Skip generating a library when the only source is an empty `__init__.py`. |
+| `python_library_naming_convention` | _(package basename)_ | Name template for generated library rules. Supports `$package_name$`. |
+| `python_test_naming_convention` | _(basename + `_test`)_ | Name template for generated test rules. Supports `$package_name$`. |
+| `python_test_file_pattern` | `*_test.py,test_*.py,tests/**,test/**` | Comma-list replaces defaults; bare single value appends. |
 | `python_root` | _(workspace root)_ | Marks the current package as the Python project root in monorepos with multiple Python projects. |
 | `python_resolve_sibling_imports` | `false` | Resolve bare-module imports (`from app import X`) as siblings of the importer's package. |
 | `python_label_convention` | `@pip//{pkg}` | Template for pip labels; `{pkg}` → resolved distribution name. |
