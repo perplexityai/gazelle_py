@@ -95,3 +95,21 @@ jobs:
             )
             echo "::endgroup::"
           done
+
+      # cross_compile is special: it has no Python source and no gazelle diff
+      # to check — its job is to analyze a darwin-targeted gazelle_binary on a
+      # Linux runner so the @macos_sdk visibility regression in gazelle_py's
+      # MODULE.bazel is caught before it ships. We use --nobuild because the
+      # Linux runner has no Apple cc toolchain registered; the regression
+      # manifests at analysis time, before linking is ever attempted.
+      - name: examples/cross_compile — analyze darwin targets from linux
+        env:
+          USE_BAZEL_VERSION: ${{ matrix.bazel }}
+        run: |
+          set -euo pipefail
+          cd examples/cross_compile
+          for triple in aarch64-apple-darwin x86_64-apple-darwin; do
+            echo "::group::--platforms=$triple"
+            bazelisk build --nobuild "--platforms=@rules_rs//rs/platforms:$triple" //:gazelle_bin
+            echo "::endgroup::"
+          done

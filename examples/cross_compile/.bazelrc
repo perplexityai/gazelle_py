@@ -1,0 +1,8 @@
+build --registry=https://bcr.bazel.build
+
+# Quieter output.
+build --show_result=0
+test --test_output=errors
+
+# Local user overrides.
+try-import %workspace%/.bazelrc.user
