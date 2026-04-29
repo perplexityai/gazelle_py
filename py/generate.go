@@ -9,6 +9,7 @@ import (
 
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 // ImportData carries parsed imports + annotations from GenerateRules to
@@ -470,29 +471,23 @@ func isTestFile(name string, cfg *pyConfig) bool {
 	return false
 }
 
-// matchTestPattern is a small glob matcher supporting `*` (path segment) and
-// `**` (path-spanning). We avoid filepath.Match because it doesn't support `**`.
+// matchTestPattern dispatches a single pattern to doublestar's glob matcher.
+// The path separator is fixed at `/` (matching Gazelle's workspace-relative
+// path conventions, regardless of host OS), so we use Match — not PathMatch,
+// which would split on the system separator.
+//
+// Pattern syntax (full doublestar grammar):
+//   - `*`          matches any chars within a single path segment (no `/`)
+//   - `**`         matches across path segments (zero or more)
+//   - `?`          matches a single char
+//   - `[abc]`      character class
+//
+// Concretely: `*_test.py` matches `foo_test.py` but NOT `pkg/foo_test.py`;
+// for the latter use `**/*_test.py`. `tests/**` matches `tests`, `tests/x`,
+// and `tests/sub/x` but not `src/tests/x`.
 func matchTestPattern(pattern, name string) bool {
-	// Fast path for prefix-style patterns ("tests/**", "test/**").
-	if strings.HasSuffix(pattern, "/**") {
-		prefix := strings.TrimSuffix(pattern, "/**")
-		return name == prefix || strings.HasPrefix(name, prefix+"/")
-	}
-	// `*_test.py` style: substring match on suffix.
-	if strings.HasPrefix(pattern, "*") {
-		return strings.HasSuffix(name, strings.TrimPrefix(pattern, "*"))
-	}
-	// `test_*.py` style: prefix match.
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(name, strings.TrimSuffix(pattern, "*"))
-	}
-	// `prefix*suffix` patterns:
-	if i := strings.Index(pattern, "*"); i > 0 && i < len(pattern)-1 {
-		prefix := pattern[:i]
-		suffix := pattern[i+1:]
-		return strings.HasPrefix(name, prefix) && strings.HasSuffix(name, suffix) && len(name) >= len(prefix)+len(suffix)
-	}
-	return name == pattern
+	ok, err := doublestar.Match(pattern, name)
+	return ok && err == nil
 }
 
 // collectSrcs partitions the directory's files into library and test srcs,

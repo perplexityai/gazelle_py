@@ -63,13 +63,41 @@ func TestMatchTestPattern(t *testing.T) {
 		name    string
 		want    bool
 	}{
+		// Single-segment globs.
 		{"*_test.py", "foo_test.py", true},
 		{"*_test.py", "foo.py", false},
+		// `*` does NOT span path separators (doublestar / glob semantics).
+		// To match across directories, callers use `**/*_test.py`.
+		{"*_test.py", "pkg/foo_test.py", false},
 		{"test_*.py", "test_foo.py", true},
 		{"test_*.py", "foo_test.py", false},
+
+		// `<dir>/**` — anything under <dir>, no leading parent allowed.
 		{"tests/**", "tests/foo.py", true},
 		{"tests/**", "tests/sub/foo.py", true},
 		{"tests/**", "src/tests/foo.py", false},
+
+		// `**/<file>` — any leading directory, including none.
+		{"**/test_*.py", "test_foo.py", true},
+		{"**/test_*.py", "pkg/test_foo.py", true},
+		{"**/test_*.py", "pkg/sub/test_foo.py", true},
+		{"**/test_*.py", "test.py", false},
+		{"**/test_*.py", "pkg/sub/foo.py", false},
+		{"**/*_test.py", "foo_test.py", true},
+		{"**/*_test.py", "pkg/foo_test.py", true},
+		{"**/*_test.py", "pkg/sub/foo.py", false},
+		{"**/conftest.py", "conftest.py", true},
+		{"**/conftest.py", "pkg/conftest.py", true},
+		{"**/conftest.py", "pkg/sub/other.py", false},
+
+		// `**/<dir>/**/<file>` — full path-spanning middle.
+		{"**/test/**/*.py", "pkg/test/sub/foo.py", true},
+		{"**/test/**/*.py", "test/foo.py", true},
+		{"**/test/**/*.py", "pkg/test/foo.py", true},
+		{"**/test/**/*.py", "pkg/foo.py", false},
+		{"**/tests/**/*.py", "tests/integ/foo.py", true},
+
+		// Literal pattern.
 		{"foo.py", "foo.py", true},
 		{"foo.py", "bar.py", false},
 	}
