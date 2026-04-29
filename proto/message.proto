@@ -1,5 +1,10 @@
 syntax = "proto3";
-package import_extractor;
+
+// Namespaced under `gazelle_py` so message FQNs (e.g.
+// gazelle_py.import_extractor.PyModule) don't collide with other gazelle
+// plugins that happen to define their own `import_extractor` proto package.
+// Plain Go imports are unaffected — those are pinned by `go_package` below.
+package gazelle_py.import_extractor;
 
 option go_package = "github.com/hermeticbuild/gazelle_py/py/proto";
 
