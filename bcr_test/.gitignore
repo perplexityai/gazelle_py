@@ -1,4 +1,0 @@
-bazel-*
-.bazelrc.user
-__pycache__
-.venv
