@@ -104,13 +104,15 @@ All directive keys mirror [rules_python's gazelle plugin](https://rules-python.r
 | Directive | Default | Notes |
 |---|---|---|
 | `python_extension` | `enabled` | `enabled` / `disabled` (also accepts `true`/`false`). Disable per-tree to skip directories owned by another tool. |
-| `python_library_naming_convention` | _(package basename, e.g. `server` for `//apps/server`)_ | Name of the generated library rule. |
-| `python_test_naming_convention` | _(package basename + `_test`)_ | Name of the generated test rule. |
+| `python_library_naming_convention` | _(package basename, e.g. `server` for `//apps/server`)_ | Name of the generated library rule. Supports the rules_python `$package_name$` placeholder (expands to the package basename). |
+| `python_test_naming_convention` | _(package basename + `_test`)_ | Name of the generated test rule. Same `$package_name$` placeholder as the library convention. |
 | `python_library_kind` | `py_library` | Override emitted library kind without `map_kind`. (Ours; rules_python doesn't have a kind override directive.) |
 | `python_test_kind` | `py_test` | Override emitted test kind without `map_kind`. |
 | `python_visibility` | `//visibility:public` | Space-separated label list. |
-| `python_test_file_pattern` | `*_test.py`, `test_*.py`, `tests/**`, `test/**` | Repeatable; appended. |
+| `python_test_file_pattern` | `*_test.py`, `test_*.py`, `tests/**`, `test/**` | Comma-separated values **replace** the defaults (matches rules_python). A bare single value (no comma) is appended to the existing list as a convenience for adding one extra pattern. |
 | `python_source_extension` | `.py` | Repeatable; appended. (Ours; rules_python hardcodes `.py`/`.pyi`.) |
+| `python_generation_mode` | `package` | `package` / `file` / `project`. `package` emits one library + one test rule per directory. `file` emits one rule per source file (named after the file's basename). `project` rolls every `.py` under the directive's directory into a single library/test rule and skips generation in subdirectories — adopt only after clearing pre-existing per-package `BUILD.bazel` files in the subtree. |
+| `python_skip_empty_init` | `false` | When true, skip emitting a library for packages whose only source is an empty (or comments-only) `__init__.py`. |
 | `python_label_convention` | `@pip//{pkg}` | Template; `{pkg}` is replaced with the resolved distribution name. |
 | `python_test_data` | _(empty)_ | Repeatable; appended to every test rule's `data`. |
 | `python_manifest_file_name` | _(empty)_ | Workspace-relative path to a `gazelle_python.yaml` (rules_python format). When set, its `modules_mapping` overrides built-in import → distribution heuristics, and its `pip_repository.name` swaps the repo segment of `python_label_convention`. |

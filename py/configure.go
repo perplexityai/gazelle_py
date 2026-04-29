@@ -42,6 +42,14 @@ const (
 	// directiveLabelNormalization controls distribution-name normalization
 	// when rendering pip labels: snake_case (default) / pep503 / none.
 	directiveLabelNormalization = "python_label_normalization"
+	// directiveGenerationMode picks the per-directory rule shape:
+	// `package` (one rule per directory, default), `file` (one rule per
+	// source file), or `project` (one rule at this directory rolling up the
+	// whole subtree).
+	directiveGenerationMode = "python_generation_mode"
+	// directiveSkipEmptyInit toggles whether empty `__init__.py`-only
+	// directories emit a library rule.
+	directiveSkipEmptyInit = "python_skip_empty_init"
 )
 
 // RegisterFlags is a no-op — all configuration is via BUILD-file directives.
@@ -68,6 +76,8 @@ func (l *pyLang) KnownDirectives() []string {
 		directivePythonRoot,
 		directiveResolveSiblingImports,
 		directiveLabelNormalization,
+		directiveGenerationMode,
+		directiveSkipEmptyInit,
 	}
 }
 
@@ -130,8 +140,16 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 			cfg.visibility = splitFields(val)
 		}
 	case directiveTestPattern:
+		// rules_python takes a single comma-separated list and REPLACES the
+		// defaults. We additionally allow a single bare value (no comma) to
+		// be appended, since prior versions of this plugin behaved that way
+		// and the extra-pattern use case is common.
 		if val != "" {
-			cfg.testPatterns = appendUnique(cfg.testPatterns, val)
+			if strings.Contains(val, ",") {
+				cfg.testPatterns = splitCommaList(val)
+			} else {
+				cfg.testPatterns = appendUnique(cfg.testPatterns, val)
+			}
 		}
 	case directiveSourceExtension:
 		if val != "" {
@@ -165,6 +183,23 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 		case "snake_case", "":
 			cfg.labelNormalization = snakeCaseNormalization
 		}
+	case directiveGenerationMode:
+		switch strings.ToLower(val) {
+		case "file":
+			cfg.generationMode = generationModeFile
+			cfg.projectRoot = ""
+		case "project":
+			cfg.generationMode = generationModeProject
+			// Pin the directory that introduced the project mode so child
+			// configs (which inherit via clone()) can tell whether they're
+			// AT the rollup root or inside it.
+			cfg.projectRoot = rel
+		case "package", "":
+			cfg.generationMode = generationModePackage
+			cfg.projectRoot = ""
+		}
+	case directiveSkipEmptyInit:
+		cfg.skipEmptyInit = parseBool(val, cfg.skipEmptyInit)
 	}
 }
 
@@ -184,6 +219,24 @@ func splitFields(s string) []string {
 		return nil
 	}
 	return fields
+}
+
+// splitCommaList trims and splits "a, b ,c" into ["a", "b", "c"], dropping
+// empty entries. Used by directives that mirror rules_python's "comma list
+// replaces the default" semantics.
+func splitCommaList(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func appendUnique(slice []string, val string) []string {

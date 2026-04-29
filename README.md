@@ -121,6 +121,11 @@ The most common ones:
 |---|---|---|
 | `python_extension` | `enabled` | `enabled` / `disabled` toggle (also accepts `true`/`false`). |
 | `python_visibility` | `//visibility:public` | Visibility for generated rules. |
+| `python_generation_mode` | `package` | `package` / `file` / `project` — one rule per directory, per file, or rolled up across the subtree. |
+| `python_skip_empty_init` | `false` | Skip generating a library when the only source is an empty `__init__.py`. |
+| `python_library_naming_convention` | _(package basename)_ | Name template for generated library rules. Supports `$package_name$`. |
+| `python_test_naming_convention` | _(basename + `_test`)_ | Name template for generated test rules. Supports `$package_name$`. |
+| `python_test_file_pattern` | `*_test.py,test_*.py,tests/**,test/**` | Comma-list replaces defaults; bare single value appends. |
 | `python_root` | _(workspace root)_ | Marks the current package as the Python project root in monorepos with multiple Python projects. |
 | `python_resolve_sibling_imports` | `false` | Resolve bare-module imports (`from app import X`) as siblings of the importer's package. |
 | `python_label_convention` | `@pip//{pkg}` | Template for pip labels; `{pkg}` → resolved distribution name. |

@@ -114,6 +114,61 @@ func TestApplyDirective_ResolveSiblingImports(t *testing.T) {
 	}
 }
 
+func TestApplyDirective_GenerationMode(t *testing.T) {
+	cases := []struct {
+		val      string
+		rel      string
+		wantMode generationModeType
+		wantRoot string
+	}{
+		{"package", "anywhere", generationModePackage, ""},
+		{"file", "anywhere", generationModeFile, ""},
+		{"project", "backend", generationModeProject, "backend"},
+		{"PROJECT", "tools/py", generationModeProject, "tools/py"},
+		// Switching back to package wipes the captured project root.
+		{"package", "anywhere", generationModePackage, ""},
+	}
+	cfg := newPyConfig()
+	for _, c := range cases {
+		applyDirective(cfg, rule.Directive{Key: directiveGenerationMode, Value: c.val}, c.rel)
+		if cfg.generationMode != c.wantMode {
+			t.Errorf("python_generation_mode=%q rel=%q: mode = %v, want %v", c.val, c.rel, cfg.generationMode, c.wantMode)
+		}
+		if cfg.projectRoot != c.wantRoot {
+			t.Errorf("python_generation_mode=%q rel=%q: projectRoot = %q, want %q", c.val, c.rel, cfg.projectRoot, c.wantRoot)
+		}
+	}
+}
+
+func TestApplyDirective_SkipEmptyInit(t *testing.T) {
+	cfg := newPyConfig()
+	applyDirective(cfg, rule.Directive{Key: directiveSkipEmptyInit, Value: "true"}, "")
+	if !cfg.skipEmptyInit {
+		t.Fatalf("python_skip_empty_init true: cfg.skipEmptyInit = false")
+	}
+	applyDirective(cfg, rule.Directive{Key: directiveSkipEmptyInit, Value: "false"}, "")
+	if cfg.skipEmptyInit {
+		t.Fatalf("python_skip_empty_init false: cfg.skipEmptyInit = true")
+	}
+}
+
+func TestApplyDirective_TestPatternCommaListReplaces(t *testing.T) {
+	cfg := newPyConfig()
+	// Comma-separated value REPLACES the defaults (rules_python semantics).
+	applyDirective(cfg, rule.Directive{Key: directiveTestPattern, Value: "*_spec.py, integration/**"}, "")
+	want := []string{"*_spec.py", "integration/**"}
+	if !reflect.DeepEqual(cfg.testPatterns, want) {
+		t.Errorf("comma-list replace: testPatterns = %v, want %v", cfg.testPatterns, want)
+	}
+	// Bare single value still APPENDS, preserving the prior plugin behavior.
+	cfg = newPyConfig()
+	before := append([]string(nil), cfg.testPatterns...)
+	applyDirective(cfg, rule.Directive{Key: directiveTestPattern, Value: "*_check.py"}, "")
+	if len(cfg.testPatterns) != len(before)+1 {
+		t.Errorf("bare value should append: got %v from %v", cfg.testPatterns, before)
+	}
+}
+
 func TestApplyDirective_LabelNormalization(t *testing.T) {
 	cases := map[string]labelNormalizationType{
 		"snake_case": snakeCaseNormalization,

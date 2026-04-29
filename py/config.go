@@ -30,6 +30,23 @@ const (
 	noneNormalization
 )
 
+// generationModeType selects how rules are produced per directory. Mirrors
+// rules_python's `python_generation_mode` directive values.
+type generationModeType int
+
+const (
+	// generationModePackage (rules_python's default): one library + optional
+	// test rule per directory.
+	generationModePackage generationModeType = iota
+	// generationModeFile: one library rule per source file. Useful when
+	// individual modules need finer-grained dep tracking.
+	generationModeFile
+	// generationModeProject: one library rule at the directory that set the
+	// directive, with sources rolled up across all subdirectories. Children
+	// inside the project tree skip rule generation entirely.
+	generationModeProject
+)
+
 // Default test-file patterns and source-file extensions. Patterns are matched
 // against the file path relative to the package directory.
 var (
@@ -99,6 +116,22 @@ type pyConfig struct {
 	// rendering pip labels (see labelNormalizationType). Default snake_case
 	// matches rules_python's pip_parse behavior.
 	labelNormalization labelNormalizationType
+
+	// generationMode controls per-directory rule emission shape (see
+	// generationModeType). Default `package` matches rules_python.
+	generationMode generationModeType
+
+	// projectRoot is the workspace-relative directory at which `python_generation_mode
+	// project` was last set. When `generationMode == generationModeProject`,
+	// rules are only emitted at this directory; subdirectories return empty.
+	// Tracked separately from `pythonRoot` (which controls module-path
+	// resolution and is unrelated to rule rollup).
+	projectRoot string
+
+	// skipEmptyInit, when true, prevents emitting a library rule for
+	// directories whose only source is an empty (or comments-only) `__init__.py`.
+	// Mirrors rules_python's `python_skip_empty_init`.
+	skipEmptyInit bool
 }
 
 // newPyConfig returns a config populated with all defaults.
