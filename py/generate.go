@@ -217,10 +217,6 @@ func generateAggregateRules(cfg *pyConfig, rel string, specs []FileSpec, results
 	if len(testSrcs) > 0 {
 		r := rule.NewRule(cfg.testKind, testName)
 		r.SetAttr("srcs", testSrcs)
-		// py_test requires a `main` attr — pick the first test file
-		// alphabetically. The merge engine preserves a manually-set main on
-		// subsequent runs, so users can override after the first generation.
-		r.SetAttr("main", testSrcs[0])
 		genRules = append(genRules, r)
 		genImports = append(genImports, ImportData{
 			TestImports: testImports,
@@ -295,7 +291,6 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 		}
 		r := rule.NewRule(cfg.testKind, ruleName)
 		r.SetAttr("srcs", []string{srcName})
-		r.SetAttr("main", srcName)
 		genRules = append(genRules, r)
 		var testMods []ImportStatement
 		if pr, ok := results[s.RelPath]; ok {
