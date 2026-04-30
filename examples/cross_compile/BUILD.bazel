@@ -1,14 +1,14 @@
 load("@gazelle//:def.bzl", "gazelle_binary")
 
-# Builds a gazelle binary linking the python plugin. Smoke-tests
-# cross-compiling gazelle_py to darwin from any host:
+# Builds a gazelle binary linking the python plugin. The point of this
+# example is to exercise cross-compiling gazelle_py to darwin from any host:
 #
 #   bazel build --platforms=@rules_rs//rs/platforms:aarch64-apple-darwin //:gazelle_bin
 #   bazel build --platforms=@rules_rs//rs/platforms:x86_64-apple-darwin  //:gazelle_bin
 #
-# Catches any future regression in the macOS rust toolchain's `@macos_sdk`
-# repo visibility from `@@gazelle_py+` — analysis fails before linking is
-# ever attempted, which is what `--nobuild` exercises in CI on Linux runners.
+# Without gazelle_py's `use_repo(osx, "macos_sdk")` re-export, analysis fails
+# with `No repository visible as '@macos_sdk' from repository '@@gazelle_py+'`
+# under rules_rs >= 0.0.64.
 gazelle_binary(
     name = "gazelle_bin",
     languages = ["@gazelle_py//py"],
