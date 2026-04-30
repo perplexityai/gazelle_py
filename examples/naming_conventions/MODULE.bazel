@@ -5,6 +5,10 @@ module(
 
 bazel_dep(name = "rules_python", version = "1.5.4")
 bazel_dep(name = "gazelle", version = "0.50.0")
+# @llvm is visible only because we declare it directly: needed to reference
+# `@llvm//config:experimental_stub_libgcc_s` in .bazelrc. Bzlmod doesn't
+# transitively expose deps' repos to consumers.
+bazel_dep(name = "llvm", version = "0.7.3")
 
 bazel_dep(name = "gazelle_py", version = "0.0.0")
 local_path_override(
