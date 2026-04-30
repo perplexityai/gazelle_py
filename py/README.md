@@ -149,4 +149,4 @@ Suppose you want to emit your own `myrepo_py_library` macro instead of stock `py
 # gazelle:map_kind py_test    myrepo_py_test    //tools:py.bzl
 ```
 
-The plugin still emits the stock kinds; gazelle rewrites the kind name and load path on disk. Your macro must accept the attrs the plugin sets (`name`, `srcs`, `deps`, `visibility`, plus `main` on tests).
+The plugin still emits the stock kinds; gazelle rewrites the kind name and load path on disk. Your macro must accept the attrs the plugin sets (`name`, `srcs`, `deps`, `visibility`).
