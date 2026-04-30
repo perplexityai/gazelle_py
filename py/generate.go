@@ -217,16 +217,12 @@ func generateAggregateRules(cfg *pyConfig, rel string, specs []FileSpec, results
 	if len(testSrcs) > 0 {
 		r := rule.NewRule(cfg.testKind, testName)
 		r.SetAttr("srcs", testSrcs)
-		if len(cfg.testData) > 0 {
-			r.SetAttr("data", cfg.testData)
-		}
 		// py_test requires a `main` attr — pick the first test file
 		// alphabetically. The merge engine preserves a manually-set main on
 		// subsequent runs, so users can override after the first generation.
 		r.SetAttr("main", testSrcs[0])
 		genRules = append(genRules, r)
 		genImports = append(genImports, ImportData{
-			Imports:     sourceImports,
 			TestImports: testImports,
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,
@@ -254,18 +250,12 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 		genImports []interface{}
 		libSpecs   []FileSpec
 	)
-	// Tests first time around: collect lib specs to expose to test rules so
-	// each test rule sees the full library import set as well as its own.
-	var allLibImports []ImportStatement
 	for _, s := range sortedSpecs {
 		srcName := pkgRelativePath(s.RelPath, rel)
 		if isTestFile(srcName, cfg) {
 			continue
 		}
 		libSpecs = append(libSpecs, s)
-		if r, ok := results[s.RelPath]; ok {
-			allLibImports = append(allLibImports, r.Modules...)
-		}
 	}
 
 	for _, s := range libSpecs {
@@ -305,9 +295,6 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 		}
 		r := rule.NewRule(cfg.testKind, ruleName)
 		r.SetAttr("srcs", []string{srcName})
-		if len(cfg.testData) > 0 {
-			r.SetAttr("data", cfg.testData)
-		}
 		r.SetAttr("main", srcName)
 		genRules = append(genRules, r)
 		var testMods []ImportStatement
@@ -315,7 +302,6 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 			testMods = pr.Modules
 		}
 		genImports = append(genImports, ImportData{
-			Imports:     allLibImports,
 			TestImports: testMods,
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,

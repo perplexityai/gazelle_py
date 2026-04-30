@@ -52,11 +52,10 @@ func (l *pyLang) Resolve(
 		setOrDelete(r, "deps", all)
 
 	case cfg.testKind:
-		// Test rules absorb the test imports plus the surrounding library's
-		// imports (the test typically links everything its sibling lib does
-		// plus its own deps).
-		modules := append([]ImportStatement{}, importData.Imports...)
-		modules = append(modules, importData.TestImports...)
+		// Test deps come only from the test files' own imports — sibling
+		// library imports reach the test transitively via the :lib target
+		// the test imports by name.
+		modules := append([]ImportStatement{}, importData.TestImports...)
 
 		// Synthesize ancestor conftest imports. Walk from the test's own
 		// directory up to the repo root, and for each ancestor that has a
