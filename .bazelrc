@@ -21,6 +21,12 @@ common --repo_env=BAZEL_DO_NOT_DETECT_SWIFT_TOOLCHAIN=1
 # compiler-rt symbols already present.
 common --@llvm//config:experimental_stub_libgcc_s=True
 
+# rules_go's link step calls the cc toolchain for the final external link;
+# clang+lld defaults to PIE on linux but Go objects use R_X86_64_64
+# relocations that require -no-pie. Disable PIE explicitly to satisfy the
+# Go linker invocation under @llvm clang.
+build:linux --linkopt=-no-pie
+
 # Per rules_rs's paved path: pin the host platform on Linux and Windows so
 # rust toolchain resolution can pick the right exec toolchain. macOS doesn't
 # need this. See //platforms:BUILD.bazel for the platform definitions.
