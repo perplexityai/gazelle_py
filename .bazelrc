@@ -2,6 +2,19 @@
 
 build --registry=https://bcr.bazel.build
 
+# Use the hermetic @llvm cc toolchain (registered in MODULE.bazel); disabling
+# autodetect avoids XcodeLocalEnvProvider's duplicate-SDKROOT crash on macOS
+# hosts with Xcode. Stub libgcc_s so rules_rust's hardcoded `-lgcc_s` link
+# spec resolves against @llvm's compiler-rt.
+common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+common --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
+common --@llvm//config:experimental_stub_libgcc_s=True
+
+# Go 1.27 (Aug 2026) makes Go binaries PIE-compatible — drop this then.
+# Until then, rules_go's external link via clang+lld needs -no-pie because
+# Go uses R_X86_64_64 relocations.
+build:linux --linkopt=-no-pie
+
 # Per rules_rs's paved path: pin the host platform on Linux and Windows so
 # rust toolchain resolution can pick the right exec toolchain. macOS doesn't
 # need this. See //platforms:BUILD.bazel for the platform definitions.
