@@ -67,16 +67,12 @@ func TestApplyDirective_AppendDirectives(t *testing.T) {
 	cfg := newPyConfig()
 	applyDirective(cfg, rule.Directive{Key: directiveTestPattern, Value: "*_check.py"}, "")
 	applyDirective(cfg, rule.Directive{Key: directiveSourceExtension, Value: ".pyi"}, "")
-	applyDirective(cfg, rule.Directive{Key: directiveTestData, Value: "//:fixtures"}, "")
 
 	if !contains(cfg.testPatterns, "*_check.py") {
 		t.Errorf("testPatterns missing *_check.py: %v", cfg.testPatterns)
 	}
 	if !contains(cfg.extensions, ".pyi") {
 		t.Errorf("extensions missing .pyi: %v", cfg.extensions)
-	}
-	if !contains(cfg.testData, "//:fixtures") {
-		t.Errorf("testData missing //:fixtures: %v", cfg.testData)
 	}
 
 	// Re-applying the same value should not duplicate.

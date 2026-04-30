@@ -25,7 +25,6 @@ const (
 	directiveTestPattern     = "python_test_file_pattern"
 	directiveSourceExtension = "python_source_extension"
 	directiveLabelConvention = "python_label_convention"
-	directiveTestData        = "python_test_data"
 	// directiveManifest points at a gazelle_python.yaml file (relative to repo
 	// root) whose `modules_mapping` overrides our internal import → distribution
 	// table. Set this when working with rules_python's pip_parse, which is
@@ -71,7 +70,6 @@ func (l *pyLang) KnownDirectives() []string {
 		directiveTestPattern,
 		directiveSourceExtension,
 		directiveLabelConvention,
-		directiveTestData,
 		directiveManifest,
 		directivePythonRoot,
 		directiveResolveSiblingImports,
@@ -158,10 +156,6 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 	case directiveLabelConvention:
 		if val != "" {
 			cfg.pipLinkPattern = val
-		}
-	case directiveTestData:
-		if val != "" {
-			cfg.testData = appendUnique(cfg.testData, val)
 		}
 	case directiveManifest:
 		if val != "" {

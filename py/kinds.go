@@ -29,7 +29,7 @@ var pyKinds = map[string]rule.KindInfo{
 	},
 	defaultTestKind: {
 		NonEmptyAttrs:  map[string]bool{"name": true},
-		MergeableAttrs: map[string]bool{"srcs": true, "data": true},
+		MergeableAttrs: map[string]bool{"srcs": true},
 		ResolveAttrs: map[string]bool{
 			"deps": true,
 		},

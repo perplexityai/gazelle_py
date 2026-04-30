@@ -17,6 +17,5 @@ py_test(
     deps = [
         ":web",
         "//packages/core",
-        "//packages/utils",
     ],
 )

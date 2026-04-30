@@ -85,9 +85,6 @@ type pyConfig struct {
 	// distribution name (lowercased, hyphens → underscores).
 	pipLinkPattern string
 
-	// testData is added to every emitted test rule's `data` attr.
-	testData []string
-
 	// manifestPath is the workspace-relative path to a gazelle_python.yaml
 	// file (the same format rules_python_gazelle_plugin reads). Empty means
 	// "no manifest" — the resolver falls back to derivation from
@@ -157,6 +154,5 @@ func (c *pyConfig) clone() *pyConfig {
 	cp.visibility = append([]string(nil), c.visibility...)
 	cp.testPatterns = append([]string(nil), c.testPatterns...)
 	cp.extensions = append([]string(nil), c.extensions...)
-	cp.testData = append([]string(nil), c.testData...)
 	return &cp
 }
