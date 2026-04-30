@@ -19,6 +19,17 @@ bazel_dep(name = "with_cfg.bzl", version = "0.14.6")
 # host platform at //platforms:local_gnu.
 bazel_dep(name = "llvm", version = "0.7.3")
 
+# Register @llvm's hermetic clang toolchain ahead of Bazel's autodetected
+# `@local_config_cc`. The autodetected darwin toolchain pulls in apple_common
+# machinery that sets APPLE_SDK_PLATFORM in the action env; combined with
+# rules_rust's deliberate hermetic SDKROOT injection (rust/private/rustc.bzl
+# `_apple_sdkroot`), Bazel's XcodeLocalEnvProvider crashes with a duplicate
+# SDKROOT key when building on macOS hosts with Xcode. Using the hermetic
+# llvm toolchain everywhere keeps APPLE_SDK_PLATFORM unset and the action env
+# under our control, sidestepping the collision and producing reproducible
+# builds across runners regardless of which Xcode is on the host.
+register_toolchains("@llvm//toolchain:all")
+
 # rules_rust facade — exposes @rules_rust so .bazelrc's --config=opt and
 # the with_cfg wrapper in //crates/import_extractor:opt.bzl can reference
 # @rules_rust//:extra_rustc_flags. Also keeps rules_rs's internal loads
