@@ -2,6 +2,17 @@
 
 build --registry=https://bcr.bazel.build
 
+# Hermetic posture: disable Bazel's autodetection of host CC / Apple / Swift
+# toolchains so the only cc toolchain in scope is the one we register
+# (@llvm//toolchain:all in MODULE.bazel). Specifically prevents Bazel from
+# wiring up the autodetected darwin cc toolchain, which would otherwise
+# inject APPLE_SDK_PLATFORM into the action env and trip
+# XcodeLocalEnvProvider's duplicate-SDKROOT crash when rules_rust's hermetic
+# SDKROOT is already present. Pattern lifted from hermetic-llvm.
+common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+common --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
+common --repo_env=BAZEL_DO_NOT_DETECT_SWIFT_TOOLCHAIN=1
+
 # Per rules_rs's paved path: pin the host platform on Linux and Windows so
 # rust toolchain resolution can pick the right exec toolchain. macOS doesn't
 # need this. See //platforms:BUILD.bazel for the platform definitions.
