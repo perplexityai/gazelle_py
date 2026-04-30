@@ -2,29 +2,17 @@
 
 build --registry=https://bcr.bazel.build
 
-# Hermetic posture: disable Bazel's autodetection of host CC / Apple / Swift
-# toolchains so the only cc toolchain in scope is the one we register
-# (@llvm//toolchain:all in MODULE.bazel). Specifically prevents Bazel from
-# wiring up the autodetected darwin cc toolchain, which would otherwise
-# inject APPLE_SDK_PLATFORM into the action env and trip
-# XcodeLocalEnvProvider's duplicate-SDKROOT crash when rules_rust's hermetic
-# SDKROOT is already present. Pattern lifted from hermetic-llvm.
+# Use the hermetic @llvm cc toolchain (registered in MODULE.bazel); disabling
+# autodetect avoids XcodeLocalEnvProvider's duplicate-SDKROOT crash on macOS
+# hosts with Xcode. Stub libgcc_s so rules_rust's hardcoded `-lgcc_s` link
+# spec resolves against @llvm's compiler-rt.
 common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 common --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
-common --repo_env=BAZEL_DO_NOT_DETECT_SWIFT_TOOLCHAIN=1
-
-# rules_rust's stdlib link spec for x86_64-unknown-linux-gnu hardcodes
-# `-lgcc_s` (a libgcc runtime dep). The hermetic @llvm toolchain doesn't
-# ship libgcc_s — it uses compiler-rt — so the link fails with
-# `ld.lld: error: unable to find library -lgcc_s`. This flag tells @llvm
-# to provide an empty stub for libgcc_s so the link succeeds against
-# compiler-rt symbols already present.
 common --@llvm//config:experimental_stub_libgcc_s=True
 
-# rules_go's link step calls the cc toolchain for the final external link;
-# clang+lld defaults to PIE on linux but Go objects use R_X86_64_64
-# relocations that require -no-pie. Disable PIE explicitly to satisfy the
-# Go linker invocation under @llvm clang.
+# Go 1.27 (Aug 2026) makes Go binaries PIE-compatible — drop this then.
+# Until then, rules_go's external link via clang+lld needs -no-pie because
+# Go uses R_X86_64_64 relocations.
 build:linux --linkopt=-no-pie
 
 # Per rules_rs's paved path: pin the host platform on Linux and Windows so
