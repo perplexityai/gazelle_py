@@ -1,0 +1,21 @@
+module(
+    name = "gazelle_py_bcr_test",
+    version = "0.0.0",
+)
+
+# BCR's `bcr_test_module` flow extracts the source archive and treats this
+# directory as the consumer workspace. `local_path_override(path = "..")`
+# pins the just-published gazelle_py back onto its tarball-extracted root.
+bazel_dep(name = "gazelle_py", version = "0.0.0")
+local_path_override(
+    module_name = "gazelle_py",
+    path = "..",
+)
+
+# `@llvm` must be a DIRECT bazel_dep here (not just a transitive of
+# gazelle_py) so the BCR consumer's main repo mapping resolves
+# `--@llvm//config:experimental_stub_libgcc_s=True`. Without this, BCR's
+# build fails at "Computing main repo mapping" with
+# "No repository visible as '@llvm' from main repository". Keep the
+# version aligned with gazelle_py's own MODULE.bazel.
+bazel_dep(name = "llvm", version = "0.7.3")

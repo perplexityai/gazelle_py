@@ -3,4 +3,12 @@
 # walks must skip them so the parent's MODULE doesn't try to resolve the
 # examples' BUILD-file load() statements (which reference modules like
 # rules_python that the parent doesn't pull in).
-ignore_directories(["examples"])
+#
+# bcr_test/ is also a self-contained workspace, used only by BCR's
+# `bcr_test_module` presubmit pattern (see .bcr/presubmit.yml). It pulls
+# the parent module back in via `local_path_override`, so resolving it
+# from inside the parent walk would create a cycle.
+ignore_directories([
+    "bcr_test",
+    "examples",
+])

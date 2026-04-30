@@ -1,0 +1,3 @@
+# Empty: bcr_test/ is a consumer-side smoke workspace. The actual targets
+# under exercise live in the gazelle_py module itself (see ../py/, ../crates/),
+# reached via the local_path_override in MODULE.bazel.
