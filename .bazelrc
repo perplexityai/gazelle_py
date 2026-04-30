@@ -27,6 +27,13 @@ common --@llvm//config:experimental_stub_libgcc_s=True
 # Go linker invocation under @llvm clang.
 build:linux --linkopt=-no-pie
 
+# rules_cc's default archiver on macOS is Apple's `libtool` (pulled in via
+# the autodetected Apple cc toolchain — the same machinery we're disabling
+# above). Route archiving through `ar` instead so the hermetic posture
+# survives `cc_library`/staticlib archiving on macOS hosts. Pattern from
+# hermetic-llvm.
+common --@rules_cc//cc/toolchains/args/archiver_flags:use_libtool_on_macos=False
+
 # Per rules_rs's paved path: pin the host platform on Linux and Windows so
 # rust toolchain resolution can pick the right exec toolchain. macOS doesn't
 # need this. See //platforms:BUILD.bazel for the platform definitions.
