@@ -1,0 +1,49 @@
+module(
+    name = "toolchain_override_example",
+    version = "0.0.0",
+)
+
+# Direct rules_rs pin so this example exercises the override path against
+# the same version gazelle_py declares.
+bazel_dep(name = "rules_rs", version = "0.0.68")
+bazel_dep(name = "rules_shell", version = "0.6.1")
+bazel_dep(name = "gazelle", version = "0.50.0")
+bazel_dep(name = "llvm", version = "0.7.6")
+
+bazel_dep(name = "gazelle_py", version = "0.0.0")
+local_path_override(
+    module_name = "gazelle_py",
+    path = "../..",
+)
+
+# rules_rust facade — needed because the BUILD file references
+# @rules_rust//rust/toolchain:current_rust_toolchain to capture rustc.
+rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
+use_repo(rules_rust, "rules_rust")
+
+# Override gazelle_py's pinned 1.92.0 with a different version. The repo
+# name MUST differ from gazelle_py's `default_rust_toolchains` — rules_rs
+# fails the merge if two tags claim the same name with different
+# configurations. With a custom name there's no collision: both repos
+# exist, and Bazel toolchain resolution prefers root-module
+# `register_toolchains` over deps', so this 1.93.0 toolchain is picked
+# over gazelle_py's.
+toolchains = use_extension(
+    "@rules_rs//rs/toolchains:module_extension.bzl",
+    "toolchains",
+)
+toolchains.toolchain(
+    name = "consumer_rust_toolchains",
+    edition = "2024",
+    version = "1.93.0",
+)
+use_repo(toolchains, "consumer_rust_toolchains")
+
+# Root-module `register_toolchains` calls precede dep registrations.
+# gazelle_py's `register_toolchains("@default_rust_toolchains//:all")`
+# still fires, but Bazel walks our list first.
+register_toolchains("@consumer_rust_toolchains//:all")
+
+# Apple cc toolchain — same shim the cross_compile example uses, so
+# `bazel test //...` works on a Linux CI runner without an Xcode install.
+register_toolchains("@llvm//toolchain:all")

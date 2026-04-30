@@ -113,3 +113,17 @@ jobs:
             bazelisk build --nobuild "--platforms=@rules_rs//rs/platforms:$triple" //:gazelle_bin
             echo "::endgroup::"
           done
+
+      # toolchain_override is also Rust-only — no Python source, no gazelle
+      # diff. It pins a different rustc version than gazelle_py and asserts
+      # that toolchain resolution honors the consumer's registration. Catches
+      # any future regression in the override path (rules_rs tag-merge order,
+      # registration precedence, or accidental `name = "default_rust_..."` in
+      # gazelle_py's MODULE.bazel that would lock out consumer overrides).
+      - name: examples/toolchain_override — verify consumer's rustc wins
+        env:
+          USE_BAZEL_VERSION: ${{ matrix.bazel }}
+        run: |
+          set -euo pipefail
+          cd examples/toolchain_override
+          bazelisk test //...

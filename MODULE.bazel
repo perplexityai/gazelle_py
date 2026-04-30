@@ -30,6 +30,13 @@ use_repo(rules_rust, "rules_rust")
 # links our staticlib via cgo and needs to build the rust crate. Pinned to
 # ruff 0.15.10's declared MSRV; we don't use anything beyond what ruff
 # requires, so the right floor is theirs.
+#
+# Consumers can override the version by registering their own toolchain
+# with a *custom name* — Bazel's root-module registrations precede ours,
+# so theirs wins. The default name `default_rust_toolchains` is owned
+# here (rules_rs's own MODULE.bazel does `use_repo(toolchains,
+# "default_rust_toolchains")` so something in the graph has to produce
+# it). See examples/toolchain_override for the override pattern.
 toolchains = use_extension(
     "@rules_rs//rs/toolchains:module_extension.bzl",
     "toolchains",

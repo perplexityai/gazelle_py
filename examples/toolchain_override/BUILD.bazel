@@ -1,0 +1,39 @@
+load("@gazelle//:def.bzl", "gazelle_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Builds a gazelle binary linking @gazelle_py//py — transitively pulls in
+# the Rust staticlib, which forces Bazel to resolve a Rust toolchain. If
+# tag-merging in rules_rs's toolchain extension errored on our consumer
+# tag (because gazelle_py also adds one), analysis would fail before we
+# get this far.
+gazelle_binary(
+    name = "gazelle_bin",
+    languages = ["@gazelle_py//py"],
+    visibility = ["//visibility:public"],
+)
+
+# Captures `rustc --version` from whichever toolchain Bazel selected.
+# The `$(RUSTC)` make variable comes from `current_rust_toolchain`, which
+# resolves through the same toolchain-resolution path the staticlib
+# build uses — so this is a faithful proxy for "which rustc compiled the
+# crate".
+genrule(
+    name = "active_rustc_version",
+    outs = ["active_rustc_version.txt"],
+    cmd = "$(RUSTC) --version > $@",
+    toolchains = ["@rules_rust//rust/toolchain:current_rust_toolchain"],
+    tools = ["@rules_rust//rust/toolchain:current_rust_toolchain"],
+)
+
+# Asserts that Bazel picked our 1.93.0 toolchain rather than gazelle_py's
+# 1.92.0. If override resolution ever regresses (e.g. rules_rs changes the
+# tag-merge order, or someone removes our `register_toolchains` line),
+# this test prints a clear diff instead of a silent fallback.
+sh_test(
+    name = "active_rustc_version_test",
+    srcs = ["active_rustc_version_test.sh"],
+    args = ["1.93.0"],
+    data = [":active_rustc_version"],
+    env = {"VERSION_FILE": "$(rlocationpath :active_rustc_version)"},
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)
