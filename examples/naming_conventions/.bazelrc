@@ -6,6 +6,17 @@ build --registry=https://bcr.bazel.build
 common --enable_platform_specific_config
 common:linux --host_platform=@gazelle_py//platforms:local_gnu
 
+# Hermetic posture: @gazelle_py's MODULE.bazel registers @llvm//toolchain:all.
+# Disabling Bazel's autodetected CC/Apple/Swift toolchains keeps the hermetic
+# llvm clang as the only cc toolchain in scope (avoids the
+# XcodeLocalEnvProvider duplicate-SDKROOT crash on macOS hosts with Xcode and
+# the host-gcc-vs-llvm race on linux). The libgcc_s stub satisfies
+# rules_rust's hardcoded `-lgcc_s` link spec on linux against compiler-rt.
+common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+common --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
+common --repo_env=BAZEL_DO_NOT_DETECT_SWIFT_TOOLCHAIN=1
+common --@llvm//config:experimental_stub_libgcc_s=True
+
 build --show_result=0
 test --test_output=errors
 
