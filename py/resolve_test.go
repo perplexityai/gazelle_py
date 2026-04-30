@@ -1,6 +1,8 @@
 package py
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -149,6 +151,57 @@ func TestDeduplicateAndSort(t *testing.T) {
 			t.Errorf("deduplicateAndSort(%v) = %v, want %v", c.in, got, c.want)
 		}
 	}
+}
+
+// TestConftestImportsFor verifies the ancestor-conftest synthesis: walking up
+// from a deeply-nested test directory must yield one synthetic import per
+// ancestor that actually has a conftest.py on disk, in deepest-first order.
+// SourceFile is the load-bearing field — resolveImports uses it to tell a
+// real `from x.conftest import …` (drop) from a synthesized one (keep).
+func TestConftestImportsFor(t *testing.T) {
+	root := t.TempDir()
+	mustWrite := func(rel string) {
+		full := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("# fixture\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Conftests at apps/ and apps/server/ but NOT at apps/server/api/.
+	mustWrite("apps/conftest.py")
+	mustWrite("apps/server/conftest.py")
+
+	got := conftestImportsFor(root, "apps/server/api")
+	if len(got) != 2 {
+		t.Fatalf("want 2 ancestor conftests, got %d (%+v)", len(got), got)
+	}
+	// Deepest first.
+	if got[0].ImportPath != "apps.server.conftest" {
+		t.Errorf("got[0].ImportPath = %q, want apps.server.conftest", got[0].ImportPath)
+	}
+	if got[1].ImportPath != "apps.conftest" {
+		t.Errorf("got[1].ImportPath = %q, want apps.conftest", got[1].ImportPath)
+	}
+	for _, syn := range got {
+		if !filepathHasSuffix(syn.SourceFile, "conftest.py") {
+			t.Errorf("synthesized SourceFile %q must end in conftest.py — resolveImports relies on the suffix to keep this import", syn.SourceFile)
+		}
+	}
+}
+
+// TestConftestImportsFor_NoneFound: when no ancestor has a conftest.py, the
+// helper returns nil — the test rule's deps shouldn't gain a synthetic import.
+func TestConftestImportsFor_NoneFound(t *testing.T) {
+	root := t.TempDir()
+	if got := conftestImportsFor(root, "apps/server"); len(got) != 0 {
+		t.Errorf("want no synthesized imports, got %v", got)
+	}
+}
+
+func filepathHasSuffix(p, suffix string) bool {
+	return len(p) >= len(suffix) && p[len(p)-len(suffix):] == suffix
 }
 
 func TestPythonStdlibCovered(t *testing.T) {

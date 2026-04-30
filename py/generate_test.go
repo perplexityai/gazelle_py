@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
 func TestIsPythonFile(t *testing.T) {
@@ -250,20 +252,309 @@ func TestIsEmptyPython(t *testing.T) {
 	}
 }
 
-func TestIsEmptyInitOnly(t *testing.T) {
+func TestFilterEmptyInits(t *testing.T) {
 	dir := t.TempDir()
 	emptyInit := filepath.Join(dir, "__init__.py")
 	if err := os.WriteFile(emptyInit, []byte("# blank package marker\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	nonEmptyInit := filepath.Join(dir, "non_empty__init__.py")
+	if err := os.WriteFile(nonEmptyInit, []byte("from . import x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	regular := filepath.Join(dir, "x.py")
+	if err := os.WriteFile(regular, []byte("def f(): pass\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("strips lone empty init", func(t *testing.T) {
+		specs := []FileSpec{{Path: emptyInit, RelPath: "pkg/__init__.py"}}
+		got := filterEmptyInits([]string{"__init__.py"}, specs, "pkg")
+		if len(got) != 0 {
+			t.Errorf("got %v, want []", got)
+		}
+	})
+
+	t.Run("strips empty init alongside real code", func(t *testing.T) {
+		// Load-bearing: this is the new behavior — previously we only suppressed
+		// the rule when the package had ONLY an empty __init__.py. Packages with
+		// real siblings now also lose the no-op init from srcs.
+		specs := []FileSpec{
+			{Path: emptyInit, RelPath: "pkg/__init__.py"},
+			{Path: regular, RelPath: "pkg/x.py"},
+		}
+		got := filterEmptyInits([]string{"__init__.py", "x.py"}, specs, "pkg")
+		want := []string{"x.py"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("keeps non-empty init", func(t *testing.T) {
+		specs := []FileSpec{
+			{Path: nonEmptyInit, RelPath: "pkg/__init__.py"},
+			{Path: regular, RelPath: "pkg/x.py"},
+		}
+		got := filterEmptyInits([]string{"__init__.py", "x.py"}, specs, "pkg")
+		want := []string{"__init__.py", "x.py"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("strips nested empty init in project-mode rollup", func(t *testing.T) {
+		// In project mode libSrcs entries can be sub-paths like `sub/__init__.py`.
+		// Filtering must reach those too — otherwise project-mode rollups still
+		// drag the no-op init files in.
+		nestedInit := filepath.Join(dir, "nested__init__.py")
+		if err := os.WriteFile(nestedInit, []byte(""), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		specs := []FileSpec{
+			{Path: nestedInit, RelPath: "proj/sub/__init__.py"},
+			{Path: regular, RelPath: "proj/sub/x.py"},
+		}
+		got := filterEmptyInits([]string{"sub/__init__.py", "sub/x.py"}, specs, "proj")
+		want := []string{"sub/x.py"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+}
+
+// TestGenerateAggregateRules_SkipEmptyInitMixed makes sure the directive's
+// new semantics flow end-to-end: an empty __init__.py + a real source file
+// emits a library rule with srcs=[the real file], not srcs=[both].
+func TestGenerateAggregateRules_SkipEmptyInitMixed(t *testing.T) {
+	dir := t.TempDir()
+	emptyInit := filepath.Join(dir, "__init__.py")
+	if err := os.WriteFile(emptyInit, []byte("\n# nothing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(dir, "app.py")
+	if err := os.WriteFile(real, []byte("x = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := newPyConfig()
+	cfg.skipEmptyInit = true
+	specs := []FileSpec{
+		{Path: emptyInit, RelPath: "pkg/__init__.py"},
+		{Path: real, RelPath: "pkg/app.py"},
+	}
+	res := generateAggregateRules(cfg, "pkg", specs, nil, annotations{})
+	if len(res.Gen) != 1 {
+		t.Fatalf("want 1 rule, got %d", len(res.Gen))
+	}
+	got := snapshot(res.Gen[0])
+	if !reflect.DeepEqual(got.srcs, []string{"app.py"}) {
+		t.Errorf("library srcs = %v, want [app.py] (empty __init__.py must be filtered)", got.srcs)
+	}
+}
+
+// TestGenerateAggregateRules_SkipEmptyInitOnly keeps the original "no rule
+// when only empty init exists" guarantee, now achieved by filtering rather
+// than the dedicated isEmptyInitOnly check.
+func TestGenerateAggregateRules_SkipEmptyInitOnly(t *testing.T) {
+	dir := t.TempDir()
+	emptyInit := filepath.Join(dir, "__init__.py")
+	if err := os.WriteFile(emptyInit, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := newPyConfig()
+	cfg.skipEmptyInit = true
 	specs := []FileSpec{{Path: emptyInit, RelPath: "pkg/__init__.py"}}
-	if !isEmptyInitOnly([]string{"__init__.py"}, specs, "pkg") {
-		t.Errorf("expected empty-only __init__.py to be detected")
+	res := generateAggregateRules(cfg, "pkg", specs, nil, annotations{})
+	if len(res.Gen) != 0 {
+		t.Errorf("want no rules, got %d", len(res.Gen))
 	}
-	// More than one src disqualifies — even if __init__.py itself is empty.
-	if isEmptyInitOnly([]string{"__init__.py", "x.py"}, specs, "pkg") {
-		t.Errorf("multi-src package should not be flagged")
+}
+
+// TestGenerateAggregateRules_SkipEmptyInitDirectiveOff verifies opt-in
+// semantics: with the directive off (default), even empty __init__.py files
+// stay in srcs and the rule is emitted.
+func TestGenerateAggregateRules_SkipEmptyInitDirectiveOff(t *testing.T) {
+	dir := t.TempDir()
+	emptyInit := filepath.Join(dir, "__init__.py")
+	if err := os.WriteFile(emptyInit, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
 	}
+
+	cfg := newPyConfig() // skipEmptyInit defaults to false
+	specs := []FileSpec{{Path: emptyInit, RelPath: "pkg/__init__.py"}}
+	res := generateAggregateRules(cfg, "pkg", specs, nil, annotations{})
+	if len(res.Gen) != 1 {
+		t.Fatalf("want 1 rule when directive off, got %d", len(res.Gen))
+	}
+	if got := snapshot(res.Gen[0]); !reflect.DeepEqual(got.srcs, []string{"__init__.py"}) {
+		t.Errorf("library srcs = %v, want [__init__.py]", got.srcs)
+	}
+}
+
+func TestIsConftestAtPackageRoot(t *testing.T) {
+	cases := map[string]bool{
+		"conftest.py":         true,
+		"sub/conftest.py":     false, // belongs to sub-package's BUILD, not ours
+		"tests/conftest.py":   false,
+		"foo.py":              false,
+		"test_conftest.py":    false,
+		"conftest_helpers.py": false,
+	}
+	for name, want := range cases {
+		if got := isConftestAtPackageRoot(name); got != want {
+			t.Errorf("isConftestAtPackageRoot(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// TestGenerateAggregateRules_ConftestExtracted verifies the rules_python-style
+// conftest layout: conftest.py is pulled out of the main library's srcs and
+// emitted as its own `py_library` named "conftest" with `testonly=True`.
+//
+// Without this, a test's synthesized `<pkg>.conftest` import would resolve to
+// the main library, dragging the entire library in as a test dep — which is
+// exactly the duplication the dedicated `:conftest` target avoids.
+func TestGenerateAggregateRules_ConftestExtracted(t *testing.T) {
+	cfg := newPyConfig()
+	specs := []FileSpec{
+		{RelPath: "pkg/app.py"},
+		{RelPath: "pkg/conftest.py"},
+		{RelPath: "pkg/app_test.py"},
+	}
+	res := generateAggregateRules(cfg, "pkg", specs, nil, annotations{})
+	if len(res.Gen) != 3 {
+		t.Fatalf("want 3 rules (lib, conftest, test), got %d", len(res.Gen))
+	}
+
+	byName := map[string]*ruleSnapshot{}
+	for _, r := range res.Gen {
+		byName[r.Name()] = snapshot(r)
+	}
+
+	lib, ok := byName["pkg"]
+	if !ok {
+		t.Fatalf("missing main library rule; have %v", keys(byName))
+	}
+	if !reflect.DeepEqual(lib.srcs, []string{"app.py"}) {
+		t.Errorf("library srcs = %v, want [app.py] (conftest.py must NOT be here)", lib.srcs)
+	}
+
+	conf, ok := byName["conftest"]
+	if !ok {
+		t.Fatalf("missing :conftest rule; have %v", keys(byName))
+	}
+	if conf.kind != defaultLibraryKind {
+		t.Errorf(":conftest kind = %q, want %q", conf.kind, defaultLibraryKind)
+	}
+	if !reflect.DeepEqual(conf.srcs, []string{"conftest.py"}) {
+		t.Errorf(":conftest srcs = %v, want [conftest.py]", conf.srcs)
+	}
+	if !conf.testonly {
+		t.Errorf(":conftest must set testonly=True")
+	}
+
+	if _, ok := byName["pkg_test"]; !ok {
+		t.Errorf("missing test rule; have %v", keys(byName))
+	}
+}
+
+// TestGenerateAggregateRules_ConftestOnly covers a directory whose only Python
+// file is conftest.py — we must still emit the :conftest rule (no main lib,
+// no test rule). Mirrors a `tests/` package that exists purely to host shared
+// fixtures.
+func TestGenerateAggregateRules_ConftestOnly(t *testing.T) {
+	cfg := newPyConfig()
+	specs := []FileSpec{{RelPath: "tests/conftest.py"}}
+	res := generateAggregateRules(cfg, "tests", specs, nil, annotations{})
+	if len(res.Gen) != 1 {
+		t.Fatalf("want exactly 1 rule, got %d", len(res.Gen))
+	}
+	conf := snapshot(res.Gen[0])
+	if conf.name != "conftest" {
+		t.Errorf("rule name = %q, want %q", conf.name, "conftest")
+	}
+	if !conf.testonly {
+		t.Errorf("conftest-only rule must set testonly=True")
+	}
+}
+
+// TestGenerateAggregateRules_NestedConftestStays makes sure conftest.py living
+// in a sub-tree stays in the main library's srcs (it'll be extracted when
+// gazelle reaches THAT directory's BUILD file). Only the package-root conftest
+// gets the dedicated rule.
+func TestGenerateAggregateRules_NestedConftestStays(t *testing.T) {
+	cfg := newPyConfig()
+	specs := []FileSpec{
+		{RelPath: "pkg/app.py"},
+		{RelPath: "pkg/sub/conftest.py"},
+	}
+	res := generateAggregateRules(cfg, "pkg", specs, nil, annotations{})
+	for _, r := range res.Gen {
+		if r.Name() == "conftest" {
+			t.Errorf("nested conftest must not produce a :conftest rule at this level")
+		}
+	}
+	if len(res.Gen) != 1 {
+		t.Fatalf("want 1 rule (main lib), got %d", len(res.Gen))
+	}
+	lib := snapshot(res.Gen[0])
+	wantSrcs := []string{"app.py", "sub/conftest.py"}
+	if !reflect.DeepEqual(lib.srcs, wantSrcs) {
+		t.Errorf("lib srcs = %v, want %v", lib.srcs, wantSrcs)
+	}
+}
+
+// TestGeneratePerFileRules_ConftestTestonly: in `python_generation_mode file`
+// every .py becomes its own rule. conftest.py already gets a `:conftest` rule
+// (named after the file's basename), but we must additionally mark it
+// testonly so it matches the package-mode behavior.
+func TestGeneratePerFileRules_ConftestTestonly(t *testing.T) {
+	cfg := newPyConfig()
+	specs := []FileSpec{
+		{RelPath: "pkg/app.py"},
+		{RelPath: "pkg/conftest.py"},
+	}
+	res := generatePerFileRules(cfg, "pkg", specs, nil, annotations{})
+	var conf *ruleSnapshot
+	for _, r := range res.Gen {
+		if r.Name() == "conftest" {
+			conf = snapshot(r)
+		}
+	}
+	if conf == nil {
+		t.Fatalf("file mode must emit a :conftest rule")
+	}
+	if !conf.testonly {
+		t.Errorf("file-mode :conftest must set testonly=True")
+	}
+}
+
+// ruleSnapshot captures the bits of a *rule.Rule we want to assert on. We
+// can't compare *rule.Rule values directly (unexported state), so we read
+// out the public attrs we care about.
+type ruleSnapshot struct {
+	kind     string
+	name     string
+	srcs     []string
+	testonly bool
+}
+
+func snapshot(r *rule.Rule) *ruleSnapshot {
+	return &ruleSnapshot{
+		kind:     r.Kind(),
+		name:     r.Name(),
+		srcs:     r.AttrStrings("srcs"),
+		testonly: r.AttrBool("testonly"),
+	}
+}
+
+func keys(m map[string]*ruleSnapshot) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 func TestCollectSrcs(t *testing.T) {

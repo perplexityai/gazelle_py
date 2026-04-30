@@ -10,5 +10,15 @@ py_test(
     name = "myapp_test",
     srcs = ["app_test.py"],
     main = "app_test.py",
-    deps = [":myapp"],
+    deps = [
+        ":conftest",
+        ":myapp",
+    ],
+)
+
+py_library(
+    name = "conftest",
+    testonly = True,
+    srcs = ["conftest.py"],
+    visibility = ["//visibility:public"],
 )
