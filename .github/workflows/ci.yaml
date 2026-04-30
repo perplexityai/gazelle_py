@@ -58,13 +58,49 @@ jobs:
         run: bazelisk test //...
 
   # Examples are linux-only — they exercise the BUILD-generation path and
-  # don't add platform-specific coverage worth the macOS runner cost. We run
-  # all examples sequentially in a single job (per bazel version) rather
-  # than fanning them out into a matrix — the BUILD-gen path is fast enough
-  # that the wall-clock penalty is small, and the runner-minute saving is
-  # large.
+  # don't add platform-specific coverage worth the macOS runner cost.
+  # Fanned out into a matrix (one runner per example × bazel version) so
+  # the slowest example doesn't gate the others.
   examples:
-    name: examples / bazel ${{ matrix.bazel }}
+    name: examples/${{ matrix.example }} / bazel ${{ matrix.bazel }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        bazel: ["9.0.0", "8.6.0"]
+        example: [basic, composite, edge_cases, file_mode, project_mode, naming_conventions]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          bazelisk-cache: true
+          # Per-example disk cache so concurrent shards don't fight for the
+          # same key. setup-bazel uses the cache key to coordinate save/restore;
+          # sharing across examples produced spurious "another job is creating
+          # this cache" warnings under the prior single-job layout.
+          disk-cache: ${{ github.workflow }}-examples-${{ matrix.example }}-bazel${{ matrix.bazel }}
+          repository-cache: true
+
+      - name: bazel test + gazelle diff
+        env:
+          USE_BAZEL_VERSION: ${{ matrix.bazel }}
+        run: |
+          set -euo pipefail
+          cd "examples/${{ matrix.example }}"
+          bazelisk test //...
+          bazelisk run //:gazelle -- update -mode=diff
+
+  # cross_compile is special: it has no Python source and no gazelle diff
+  # to check — its job is to analyze a darwin-targeted gazelle_binary on a
+  # Linux runner so the @macos_sdk visibility regression in gazelle_py's
+  # MODULE.bazel is caught before it ships. We use --nobuild because the
+  # Linux runner has no Apple cc toolchain registered; the regression
+  # manifests at analysis time, before linking is ever attempted.
+  examples-cross-compile:
+    name: examples/cross_compile / bazel ${{ matrix.bazel }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -78,31 +114,10 @@ jobs:
         uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workflow }}-examples-bazel${{ matrix.bazel }}
+          disk-cache: ${{ github.workflow }}-examples-cross_compile-bazel${{ matrix.bazel }}
           repository-cache: true
 
-      - name: bazel test + gazelle diff for every example
-        env:
-          USE_BAZEL_VERSION: ${{ matrix.bazel }}
-        run: |
-          set -euo pipefail
-          for example in basic composite edge_cases file_mode project_mode naming_conventions; do
-            echo "::group::examples/$example"
-            (
-              cd "examples/$example"
-              bazelisk test //...
-              bazelisk run //:gazelle -- update -mode=diff
-            )
-            echo "::endgroup::"
-          done
-
-      # cross_compile is special: it has no Python source and no gazelle diff
-      # to check — its job is to analyze a darwin-targeted gazelle_binary on a
-      # Linux runner so the @macos_sdk visibility regression in gazelle_py's
-      # MODULE.bazel is caught before it ships. We use --nobuild because the
-      # Linux runner has no Apple cc toolchain registered; the regression
-      # manifests at analysis time, before linking is ever attempted.
-      - name: examples/cross_compile — analyze darwin targets from linux
+      - name: analyze darwin targets from linux
         env:
           USE_BAZEL_VERSION: ${{ matrix.bazel }}
         run: |
