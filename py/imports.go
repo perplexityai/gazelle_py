@@ -31,12 +31,6 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 	if r.Kind() != cfg.libraryKind {
 		return nil
 	}
-	// `:conftest` library targets exist purely to be picked up by the
-	// conftest-synthesis path in resolve.go — indexing them under the
-	// package's module path would shadow the real library's specs.
-	if r.Name() == "conftest" {
-		return nil
-	}
 
 	// Strip the python_root prefix so dotted import paths are interpreted
 	// relative to it. With pythonRoot="backend", `backend/api/` indexes as
@@ -51,9 +45,18 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 		return nil
 	}
 
-	specs := []resolve.ImportSpec{
-		{Lang: languageName, Imp: pkg},
-		{Lang: languageName, Imp: pkg + ".*"},
+	// The dedicated `:conftest` library exists solely to be picked up by the
+	// conftest-synthesis path in resolve.go. Indexing it under `pkg` / `pkg.*`
+	// would shadow the real library at the same package, so we register only
+	// the per-src `pkg.conftest` spec for it.
+	isConftestRule := r.Name() == conftestTargetName
+
+	var specs []resolve.ImportSpec
+	if !isConftestRule {
+		specs = append(specs,
+			resolve.ImportSpec{Lang: languageName, Imp: pkg},
+			resolve.ImportSpec{Lang: languageName, Imp: pkg + ".*"},
+		)
 	}
 
 	for _, s := range r.AttrStrings("srcs") {

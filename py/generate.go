@@ -12,6 +12,15 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
+// conftestFilename is the file name pytest collects as a fixture/setup
+// module; we mirror its discovery rules. conftestTargetName is the rule
+// name we emit for the dedicated `py_library` that wraps it (matching
+// rules_python's gazelle plugin).
+const (
+	conftestFilename   = "conftest.py"
+	conftestTargetName = "conftest"
+)
+
 // ImportData carries parsed imports + annotations from GenerateRules to
 // Resolve. Gazelle runs GenerateRules during the directory walk (before the
 // RuleIndex is complete) and Resolve afterwards, so we stash everything we'll
@@ -161,17 +170,30 @@ func (l *pyLang) parseSpecs(specs []FileSpec) (map[string]FileImports, []string)
 // generateAggregateRules emits one library + one test rule covering every
 // spec passed in. Used by both `package` and `project` generation modes —
 // the caller decides which specs to gather.
+//
+// `conftest.py` at the package's own root (not nested under a subdirectory)
+// is extracted into a dedicated `py_library` named `conftest` with
+// `testonly=True`, mirroring rules_python's gazelle plugin. Tests pick it up
+// transitively through the ancestor-conftest synthesis in resolve.go.
 func generateAggregateRules(cfg *pyConfig, rel string, specs []FileSpec, results map[string]FileImports, annot annotations) language.GenerateResult {
 	libName, testName := resolveRuleNames(cfg, rel)
 
 	var libSrcs, testSrcs []string
-	var sourceImports, testImports []ImportStatement
+	var sourceImports, testImports, conftestImports []ImportStatement
+	hasConftest := false
 	for _, s := range specs {
 		// Sources are listed relative to the package the rule lives in.
 		// `rel` is the package's workspace-relative path; trimming it
 		// turns "apps/server/utils/x.py" into "utils/x.py" inside
 		// //apps/server's BUILD file.
 		srcName := pkgRelativePath(s.RelPath, rel)
+		if isConftestAtPackageRoot(srcName) {
+			hasConftest = true
+			if r, ok := results[s.RelPath]; ok {
+				conftestImports = append(conftestImports, r.Modules...)
+			}
+			continue
+		}
 		isTest := isTestFile(srcName, cfg)
 		if isTest {
 			testSrcs = append(testSrcs, srcName)
@@ -189,11 +211,11 @@ func generateAggregateRules(cfg *pyConfig, rel string, specs []FileSpec, results
 	sort.Strings(libSrcs)
 	sort.Strings(testSrcs)
 
-	if cfg.skipEmptyInit && isEmptyInitOnly(libSrcs, specs, rel) {
-		libSrcs = nil
+	if cfg.skipEmptyInit {
+		libSrcs = filterEmptyInits(libSrcs, specs, rel)
 	}
 
-	if len(libSrcs) == 0 && len(testSrcs) == 0 {
+	if len(libSrcs) == 0 && len(testSrcs) == 0 && !hasConftest {
 		return language.GenerateResult{}
 	}
 
@@ -209,6 +231,21 @@ func generateAggregateRules(cfg *pyConfig, rel string, specs []FileSpec, results
 		genRules = append(genRules, r)
 		genImports = append(genImports, ImportData{
 			Imports:     sourceImports,
+			Ignore:      annot.ignore,
+			IncludeDeps: annot.includeDep,
+		})
+	}
+
+	if hasConftest {
+		r := rule.NewRule(cfg.libraryKind, conftestTargetName)
+		r.SetAttr("srcs", []string{conftestFilename})
+		r.SetAttr("testonly", true)
+		if len(cfg.visibility) > 0 {
+			r.SetAttr("visibility", cfg.visibility)
+		}
+		genRules = append(genRules, r)
+		genImports = append(genImports, ImportData{
+			Imports:     conftestImports,
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,
 		})
@@ -262,6 +299,9 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 		ruleName := perFileRuleName(srcName)
 		r := rule.NewRule(cfg.libraryKind, ruleName)
 		r.SetAttr("srcs", []string{srcName})
+		if isConftestAtPackageRoot(srcName) {
+			r.SetAttr("testonly", true)
+		}
 		if len(cfg.visibility) > 0 {
 			r.SetAttr("visibility", cfg.visibility)
 		}
@@ -340,18 +380,44 @@ func isInitFile(name string) bool {
 	return filepath.Base(name) == "__init__.py"
 }
 
-// isEmptyInitOnly returns true when the package's only library source is an
-// empty (or comments-only) __init__.py — the trigger for `python_skip_empty_init`.
-func isEmptyInitOnly(libSrcs []string, specs []FileSpec, rel string) bool {
-	if len(libSrcs) != 1 || libSrcs[0] != "__init__.py" {
-		return false
+// isConftestAtPackageRoot returns true when the package-relative source
+// path is exactly `conftest.py` (i.e. lives at the package directory itself,
+// not in a sub-tree). Conftest files at deeper levels belong to that
+// sub-package's own BUILD file when gazelle later processes that directory.
+func isConftestAtPackageRoot(srcName string) bool {
+	return srcName == conftestFilename
+}
+
+// filterEmptyInits drops every empty (or comments-only) `__init__.py` entry
+// from `libSrcs`. The original `srcs` order is preserved for any kept entries.
+//
+// `python_skip_empty_init` controls whether this runs at all; when on, empty
+// init files are stripped wherever they appear (sibling to real code, sole
+// source in a package, or nested inside a project-mode rollup). If a package
+// loses its only source as a result, the caller's `len == 0` check naturally
+// suppresses the rule.
+//
+// Why filter rather than always emit: a Bazel `py_library` whose only source
+// is a no-op `__init__.py` produces a package marker that callers must depend
+// on but adds no real code. Most projects prefer to skip those rules entirely.
+func filterEmptyInits(libSrcs []string, specs []FileSpec, rel string) []string {
+	if len(libSrcs) == 0 {
+		return libSrcs
 	}
+	pathBy := make(map[string]string, len(specs))
 	for _, s := range specs {
-		if pkgRelativePath(s.RelPath, rel) == "__init__.py" {
-			return isEmptyPython(s.Path)
-		}
+		pathBy[pkgRelativePath(s.RelPath, rel)] = s.Path
 	}
-	return false
+	out := make([]string, 0, len(libSrcs))
+	for _, src := range libSrcs {
+		if isInitFile(src) {
+			if path, ok := pathBy[src]; ok && isEmptyPython(path) {
+				continue
+			}
+		}
+		out = append(out, src)
+	}
+	return out
 }
 
 // isEmptyPython returns true when a .py file contains no code: only blank

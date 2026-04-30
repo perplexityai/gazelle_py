@@ -56,11 +56,14 @@ go_test(
         "annotations_test.go",
         "config_test.go",
         "generate_test.go",
+        "imports_test.go",
         "manifest_test.go",
         "resolve_test.go",
     ],
     embed = [":py"],
     deps = [
+        "@gazelle//config",
+        "@gazelle//resolve",
         "@gazelle//rule",
     ],
 )

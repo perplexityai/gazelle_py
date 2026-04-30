@@ -112,7 +112,7 @@ All directive keys mirror [rules_python's gazelle plugin](https://rules-python.r
 | `python_test_file_pattern` | `*_test.py`, `test_*.py`, `tests/**`, `test/**` | Comma-separated values **replace** the defaults (matches rules_python). A bare single value (no comma) is appended to the existing list as a convenience for adding one extra pattern. |
 | `python_source_extension` | `.py` | Repeatable; appended. (Ours; rules_python hardcodes `.py`/`.pyi`.) |
 | `python_generation_mode` | `package` | `package` / `file` / `project`. `package` emits one library + one test rule per directory. `file` emits one rule per source file (named after the file's basename). `project` rolls every `.py` under the directive's directory into a single library/test rule and skips generation in subdirectories — adopt only after clearing pre-existing per-package `BUILD.bazel` files in the subtree. |
-| `python_skip_empty_init` | `false` | When true, skip emitting a library for packages whose only source is an empty (or comments-only) `__init__.py`. |
+| `python_skip_empty_init` | `false` | When true, drop empty (or comments-only) `__init__.py` files from `srcs` everywhere they appear, including alongside real sources. A package whose only source was an empty `__init__.py` therefore stops emitting a rule entirely. |
 | `python_label_convention` | `@pip//{pkg}` | Template; `{pkg}` is replaced with the resolved distribution name. |
 | `python_manifest_file_name` | _(empty)_ | Workspace-relative path to a `gazelle_python.yaml` (rules_python format). When set, its `modules_mapping` overrides built-in import → distribution heuristics, and its `pip_repository.name` swaps the repo segment of `python_label_convention`. |
 | `python_root` | _(workspace root)_ | Marks the current package as the Python project root: dotted import paths under it are interpreted relative to this directory. Set on a parent BUILD file in monorepos with multiple Python projects sharing one workspace (e.g. `backend/`, `tools/python/`). The directive's value is ignored — it picks up the BUILD file's own path. |
@@ -138,7 +138,7 @@ import baz
 1. `pyproject.toml`, `requirements.txt`, and `requirements.in` (if present) are read once at the repo root for declared distribution names.
 2. If `python_manifest_file_name` points at a `gazelle_python.yaml`, the file's `modules_mapping` is loaded once on first use.
 3. Per import, run the possible-modules ladder shown above.
-4. **Test rules** resolve only the imports the test files themselves declare — the sibling `:lib` target is reached transitively when the test imports it by module name. The plugin also synthesizes imports for every ancestor directory containing a `conftest.py`, so a dedicated `:conftest` `py_library` target is automatically picked up while plain `from x.conftest import …` statements (and self-imports) are dropped.
+4. **Test rules** resolve only the imports the test files themselves declare — the sibling `:lib` target is reached transitively when the test imports it by module name. `conftest.py` at a package's own root is automatically extracted into its own `py_library` rule named `:conftest` with `testonly = True` (matching rules_python's gazelle plugin); it is NOT bundled into the package's main library. The plugin synthesizes imports for every ancestor directory containing a `conftest.py`, so the dedicated `:conftest` target is picked up transitively, while plain `from x.conftest import …` statements (and self-imports) are dropped.
 
 ## Running with a custom macro (`map_kind`)
 
