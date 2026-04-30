@@ -273,7 +273,7 @@ func setOrDelete(r *rule.Rule, attr string, values []string) {
 // names for the common cases where they differ. Values are stored in PEP 503
 // form (hyphens, lowercase) — `normalizeDist` converts to the active label
 // normalization mode at render time. Users add overrides via
-// `# gazelle:resolve python <import> <label>` or by extending gazelle_python.yaml.
+// `# gazelle:resolve py <import> <label>` or by extending gazelle_python.yaml.
 var pythonImportToDist = map[string]string{
 	"cv2":      "opencv-python",
 	"PIL":      "pillow",
