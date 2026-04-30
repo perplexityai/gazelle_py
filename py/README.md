@@ -73,7 +73,7 @@ The Rust crate at [`../crates/import_extractor`](../crates/import_extractor) is 
 
 ## Resolution decision tree
 
-For each import the resolver walks a "possible modules" ladder, trying progressively shorter dotted prefixes (`a.b.c.d` → `a.b.c` → `a.b` → `a`). At each prefix it checks every source in order before stepping shorter — that ordering matters: a single `# gazelle:resolve python <broad> <label>` directive must NOT steal an import that's actually a deeper, more specific submodule provided by another rule.
+For each import the resolver walks a "possible modules" ladder, trying progressively shorter dotted prefixes (`a.b.c.d` → `a.b.c` → `a.b` → `a`). At each prefix it checks every source in order before stepping shorter — that ordering matters: a single `# gazelle:resolve py <broad> <label>` directive must NOT steal an import that's actually a deeper, more specific submodule provided by another rule.
 
 ```mermaid
 flowchart TD

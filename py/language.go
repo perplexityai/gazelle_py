@@ -31,10 +31,12 @@ import (
 
 // languageName is the unique identifier for this Gazelle extension. It also
 // determines the `Lang` key in resolve.ImportSpec entries this plugin writes
-// to / reads from gazelle's RuleIndex. Set to "python" to match
-// rules_python's gazelle plugin so a `# gazelle:resolve python <import>
-// <label>` directive routes through both extensions identically.
-const languageName = "python"
+// to / reads from gazelle's RuleIndex, and the `<lang>` token in
+// `# gazelle:resolve <lang> <import> <label>` directives consumers write to
+// override resolution. Set to "py" to match the Bazel package name (`py/`)
+// — a deliberate divergence from rules_python_gazelle_plugin's "python"
+// key. Consumers running both plugins must use the matching key for each.
+const languageName = "py"
 
 // pyLang implements the language.Language interface from Gazelle.
 type pyLang struct {
