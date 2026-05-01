@@ -211,18 +211,16 @@ func generateAggregateRules(cfg *pyConfig, rel string, specs []FileSpec, results
 	sort.Strings(libSrcs)
 	sort.Strings(testSrcs)
 
-	if cfg.skipEmptyInit {
-		libSrcs = filterEmptyInits(libSrcs, specs, rel)
-	}
+	skipLib := cfg.skipEmptyInit && isLoneEmptyInit(libSrcs, specs, rel)
 
-	if len(libSrcs) == 0 && len(testSrcs) == 0 && !hasConftest {
+	if (len(libSrcs) == 0 || skipLib) && len(testSrcs) == 0 && !hasConftest {
 		return language.GenerateResult{}
 	}
 
 	var genRules []*rule.Rule
 	var genImports []interface{}
 
-	if len(libSrcs) > 0 {
+	if len(libSrcs) > 0 && !skipLib {
 		r := rule.NewRule(cfg.libraryKind, libName)
 		r.SetAttr("srcs", libSrcs)
 		if len(cfg.visibility) > 0 {
@@ -388,36 +386,24 @@ func isConftestAtPackageRoot(srcName string) bool {
 	return srcName == conftestFilename
 }
 
-// filterEmptyInits drops every empty (or comments-only) `__init__.py` entry
-// from `libSrcs`. The original `srcs` order is preserved for any kept entries.
+// isLoneEmptyInit reports whether `libSrcs` is exactly one entry, an
+// `__init__.py`, whose on-disk content is empty (or comments-only).
 //
-// `python_skip_empty_init` controls whether this runs at all; when on, empty
-// init files are stripped wherever they appear (sibling to real code, sole
-// source in a package, or nested inside a project-mode rollup). If a package
-// loses its only source as a result, the caller's `len == 0` check naturally
-// suppresses the rule.
-//
-// Why filter rather than always emit: a Bazel `py_library` whose only source
-// is a no-op `__init__.py` produces a package marker that callers must depend
-// on but adds no real code. Most projects prefer to skip those rules entirely.
-func filterEmptyInits(libSrcs []string, specs []FileSpec, rel string) []string {
-	if len(libSrcs) == 0 {
-		return libSrcs
+// Used by `python_skip_empty_init`: when true, the caller skips emitting the
+// library rule entirely. We deliberately do NOT strip empty `__init__.py`
+// files from packages that also contain real sources — relative imports
+// (`from . import x`) require the `__init__.py` to be part of the same
+// `py_library` so the package marker ships with the code that imports from it.
+func isLoneEmptyInit(libSrcs []string, specs []FileSpec, rel string) bool {
+	if len(libSrcs) != 1 || !isInitFile(libSrcs[0]) {
+		return false
 	}
-	pathBy := make(map[string]string, len(specs))
 	for _, s := range specs {
-		pathBy[pkgRelativePath(s.RelPath, rel)] = s.Path
-	}
-	out := make([]string, 0, len(libSrcs))
-	for _, src := range libSrcs {
-		if isInitFile(src) {
-			if path, ok := pathBy[src]; ok && isEmptyPython(path) {
-				continue
-			}
+		if pkgRelativePath(s.RelPath, rel) == libSrcs[0] {
+			return isEmptyPython(s.Path)
 		}
-		out = append(out, src)
 	}
-	return out
+	return false
 }
 
 // isEmptyPython returns true when a .py file contains no code: only blank

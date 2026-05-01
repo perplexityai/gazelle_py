@@ -1,0 +1,18 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+py_library(
+    name = "relative_lib",
+    srcs = [
+        "__init__.py",
+        "core.py",
+        "helpers_local.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+py_test(
+    name = "relative_unittest",
+    srcs = ["relative_spec.py"],
+    main = "relative_spec.py",
+    deps = [":relative_lib"],
+)

@@ -18,6 +18,11 @@ shape inherit into every package below.
 └── widgets/
     ├── empty_only/
     │   └── __init__.py      # empty → no BUILD file generated (skip_empty_init)
+    ├── relative/
+    │   ├── __init__.py      # empty BUT kept in srcs — sibling uses `from . import`
+    │   ├── core.py
+    │   ├── helpers_local.py # `from . import core`
+    │   └── relative_spec.py # → :relative_unittest
     ├── widget/
     │   ├── __init__.py      # non-empty re-exports
     │   ├── widget.py        # → :widget_lib
@@ -34,6 +39,10 @@ shape inherit into every package below.
 - `python_skip_empty_init` drops the library that would have been generated
   for `widgets/empty_only/` — its only file is an empty (comments-only)
   `__init__.py`. No `BUILD.bazel` is written there.
+- `widgets/relative/` shows the other half of the contract: even with the
+  directive on, an empty `__init__.py` stays in `srcs` when siblings exist,
+  because `helpers_local.py` does `from . import core` and that relative
+  import only resolves when the package marker ships in the same library.
 - `python_test_file_pattern *_spec.py,*_test.py` is a comma-separated list,
   which **replaces** the default patterns. `widget_spec.py` is recognized
   as a test (under defaults it would have been bundled into the library).
