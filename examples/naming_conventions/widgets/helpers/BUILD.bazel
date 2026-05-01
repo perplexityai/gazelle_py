@@ -2,6 +2,9 @@ load("@rules_python//python:defs.bzl", "py_library")
 
 py_library(
     name = "helpers_lib",
-    srcs = ["helpers.py"],
+    srcs = [
+        "__init__.py",
+        "helpers.py",
+    ],
     visibility = ["//visibility:public"],
 )

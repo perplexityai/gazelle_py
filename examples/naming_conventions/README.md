@@ -35,6 +35,7 @@ shape inherit into every package below.
     │   ├── widget.py        # → :widget_lib
     │   └── widget_spec.py   # → :widget_unittest (custom test pattern)
     └── helpers/
+        ├── __init__.py      # empty — kept in srcs alongside helpers.py
         └── helpers.py       # → :helpers_lib
 ```
 
