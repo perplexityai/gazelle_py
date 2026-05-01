@@ -6,10 +6,7 @@ members = [
 
 [workspace.package]
 edition = "2024"
-# Floor matches ruff 0.15.10's own rust-version — we don't use anything beyond
-# what ruff requires, so the right floor is theirs. Edition 2024 itself only
-# needs 1.85+; ruff is the binding constraint.
-rust-version = "1.92"
+rust-version = "1.95"
 license = "Apache-2.0"
 repository = "https://github.com/hermeticbuild/gazelle_py"
 
