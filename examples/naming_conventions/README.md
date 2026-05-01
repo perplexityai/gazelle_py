@@ -19,12 +19,14 @@ shape inherit into every package below.
     ├── empty_only/
     │   └── __init__.py      # empty → no BUILD file generated (skip_empty_init)
     ├── empty_tree/          # project-mode rollup, every src is empty __init__.py
-    │   ├── BUILD.bazel      # carries the project directive only — no py_library
+    │   ├── BUILD.bazel      # carries the project directive only — no py_library, no py_test
     │   ├── __init__.py      # empty
     │   ├── inner/
     │   │   └── __init__.py  # empty
-    │   └── leaf/
-    │       └── __init__.py  # empty
+    │   ├── leaf/
+    │   │   └── __init__.py  # empty
+    │   └── tests/
+    │       └── __init__.py  # empty — would have been a py_test; suppressed
     ├── relative/
     │   ├── __init__.py      # empty BUT kept in srcs — sibling uses `from . import`
     │   ├── core.py
@@ -53,9 +55,12 @@ shape inherit into every package below.
   import only resolves when the package marker ships in the same library.
 - `widgets/empty_tree/` is the project-mode rollup case: with
   `python_generation_mode project` set, gazelle would normally fold every
-  `.py` under that subtree into a single `py_library`. Here all three
-  `__init__.py` files are empty, so `python_skip_empty_init` suppresses the
-  rollup rule even though there is more than one src.
+  `.py` under that subtree into a single `py_library` and a single
+  `py_test`. The local BUILD.bazel restores the default `tests/**` test
+  pattern so `tests/__init__.py` is bucketed as a test source. Every src
+  in the subtree (parent + nested + tests) is an empty `__init__.py`, so
+  `python_skip_empty_init` suppresses BOTH the rollup library and the
+  rollup test rule — neither is emitted.
 - `python_test_file_pattern *_spec.py,*_test.py` is a comma-separated list,
   which **replaces** the default patterns. `widget_spec.py` is recognized
   as a test (under defaults it would have been bundled into the library).

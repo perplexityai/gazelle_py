@@ -212,8 +212,9 @@ func generateAggregateRules(cfg *pyConfig, rel string, specs []FileSpec, results
 	sort.Strings(testSrcs)
 
 	skipLib := cfg.skipEmptyInit && allEmptyInits(libSrcs, specs, rel, results)
+	skipTest := cfg.skipEmptyInit && allEmptyInits(testSrcs, specs, rel, results)
 
-	if (len(libSrcs) == 0 || skipLib) && len(testSrcs) == 0 && !hasConftest {
+	if (len(libSrcs) == 0 || skipLib) && (len(testSrcs) == 0 || skipTest) && !hasConftest {
 		return language.GenerateResult{}
 	}
 
@@ -249,7 +250,7 @@ func generateAggregateRules(cfg *pyConfig, rel string, specs []FileSpec, results
 		})
 	}
 
-	if len(testSrcs) > 0 {
+	if len(testSrcs) > 0 && !skipTest {
 		r := rule.NewRule(cfg.testKind, testName)
 		r.SetAttr("srcs", testSrcs)
 		genRules = append(genRules, r)
@@ -322,6 +323,11 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 		if !isTestFile(srcName, cfg) {
 			continue
 		}
+		if cfg.skipEmptyInit && isInitFile(srcName) {
+			if r, ok := results[s.RelPath]; ok && r.IsEmpty {
+				continue
+			}
+		}
 		ruleName := perFileRuleName(srcName)
 		// rules_python's file mode uses the library naming convention for
 		// tests too (since each file is its own unit). Suffix with _test
@@ -388,29 +394,31 @@ func isConftestAtPackageRoot(srcName string) bool {
 	return srcName == conftestFilename
 }
 
-// allEmptyInits reports whether every entry in `libSrcs` is an `__init__.py`
-// whose parsed AST has no top-level statements. Empty `libSrcs` returns
+// allEmptyInits reports whether every entry in `srcs` is an `__init__.py`
+// whose parsed AST has no top-level statements. Empty `srcs` returns
 // false — there's nothing to be "all empty inits" about. Emptiness is
 // supplied by the rust import_extractor (FileImports.IsEmpty); a file
 // missing from `results` is treated as non-empty so we never accidentally
 // suppress a rule on a parser cache miss.
 //
-// Used by `python_skip_empty_init`: when true, the caller skips emitting the
-// library rule entirely. This covers both the simple package case (sole src
-// is one empty __init__.py) and the project-mode rollup case (multiple
-// nested empty __init__.py files and nothing else). We deliberately do NOT
-// strip empty `__init__.py` files from packages that also contain real
-// sources — relative imports (`from . import x`) require the `__init__.py`
-// to be part of the same `py_library` as the importing module.
-func allEmptyInits(libSrcs []string, specs []FileSpec, rel string, results map[string]FileImports) bool {
-	if len(libSrcs) == 0 {
+// Used by `python_skip_empty_init` to suppress both library and test rules.
+// Covers the simple package case (sole src is one empty __init__.py), the
+// project-mode rollup case (multiple nested empty __init__.py files and
+// nothing else), and project-mode rollups where every test src is an
+// `__init__.py` under a `tests/` subtree (matching the default `tests/**`
+// test pattern). We deliberately do NOT strip empty `__init__.py` files
+// from rules that also contain real sources — relative imports
+// (`from . import x`) require the `__init__.py` to be part of the same
+// rule as the importing module.
+func allEmptyInits(srcs []string, specs []FileSpec, rel string, results map[string]FileImports) bool {
+	if len(srcs) == 0 {
 		return false
 	}
 	relBy := make(map[string]string, len(specs))
 	for _, s := range specs {
 		relBy[pkgRelativePath(s.RelPath, rel)] = s.RelPath
 	}
-	for _, src := range libSrcs {
+	for _, src := range srcs {
 		if !isInitFile(src) {
 			return false
 		}

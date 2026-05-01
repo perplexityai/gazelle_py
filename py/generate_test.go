@@ -362,6 +362,95 @@ func TestGenerateAggregateRules_SkipEmptyInitOnly(t *testing.T) {
 	}
 }
 
+// TestGenerateAggregateRules_SkipEmptyInitTestsOnly covers the project-mode
+// rollup case where a `tests/` subdirectory contains only an empty
+// `__init__.py` and there are no real sources anywhere in the subtree.
+// `tests/__init__.py` matches the default `tests/**` pattern, so it lands in
+// testSrcs — and without the empty-init check on testSrcs we'd emit a useless
+// `py_test` whose sole src is an empty file (the bug observed across cronjob
+// packages with v0.8.0's skip_empty_init).
+func TestGenerateAggregateRules_SkipEmptyInitTestsOnly(t *testing.T) {
+	cfg := newPyConfig()
+	cfg.skipEmptyInit = true
+	specs := []FileSpec{{RelPath: "proj/tests/__init__.py"}}
+	results := map[string]FileImports{"proj/tests/__init__.py": {IsEmpty: true}}
+	res := generateAggregateRules(cfg, "proj", specs, results, annotations{})
+	if len(res.Gen) != 0 {
+		t.Errorf("want no rules when only test src is empty tests/__init__.py, got %d", len(res.Gen))
+	}
+}
+
+// TestGenerateAggregateRules_SkipEmptyInitTestsAlongsideLib is the mixed case:
+// a real library source plus a `tests/__init__.py`-only test bucket. The
+// library rule must still emit; only the test rule is suppressed.
+func TestGenerateAggregateRules_SkipEmptyInitTestsAlongsideLib(t *testing.T) {
+	cfg := newPyConfig()
+	cfg.skipEmptyInit = true
+	specs := []FileSpec{
+		{RelPath: "proj/app.py"},
+		{RelPath: "proj/tests/__init__.py"},
+	}
+	results := map[string]FileImports{
+		"proj/app.py":            {IsEmpty: false},
+		"proj/tests/__init__.py": {IsEmpty: true},
+	}
+	res := generateAggregateRules(cfg, "proj", specs, results, annotations{})
+	if len(res.Gen) != 1 {
+		t.Fatalf("want 1 rule (library only — empty tests/__init__.py suppressed), got %d", len(res.Gen))
+	}
+	got := snapshot(res.Gen[0])
+	if got.kind != defaultLibraryKind {
+		t.Errorf("emitted rule kind = %q, want %q", got.kind, defaultLibraryKind)
+	}
+	if !reflect.DeepEqual(got.srcs, []string{"app.py"}) {
+		t.Errorf("library srcs = %v, want [app.py]", got.srcs)
+	}
+}
+
+// TestGenerateAggregateRules_SkipEmptyInitRealTestKept guards the inverse:
+// when at least one test src is real code, the test rule must keep emitting
+// (and the empty `tests/__init__.py` must remain in srcs so package-relative
+// imports inside the tests subtree continue to resolve).
+func TestGenerateAggregateRules_SkipEmptyInitRealTestKept(t *testing.T) {
+	cfg := newPyConfig()
+	cfg.skipEmptyInit = true
+	specs := []FileSpec{
+		{RelPath: "proj/tests/__init__.py"},
+		{RelPath: "proj/tests/test_app.py"},
+	}
+	results := map[string]FileImports{
+		"proj/tests/__init__.py": {IsEmpty: true},
+		"proj/tests/test_app.py": {IsEmpty: false},
+	}
+	res := generateAggregateRules(cfg, "proj", specs, results, annotations{})
+	if len(res.Gen) != 1 {
+		t.Fatalf("want 1 rule (test, real src present), got %d", len(res.Gen))
+	}
+	got := snapshot(res.Gen[0])
+	if got.kind != defaultTestKind {
+		t.Errorf("emitted rule kind = %q, want %q", got.kind, defaultTestKind)
+	}
+	if !reflect.DeepEqual(got.srcs, []string{"tests/__init__.py", "tests/test_app.py"}) {
+		t.Errorf("test srcs = %v, want [tests/__init__.py tests/test_app.py]", got.srcs)
+	}
+}
+
+// TestGeneratePerFileRules_SkipEmptyInitTest covers the file-mode counterpart:
+// an empty `__init__.py` matched by a test pattern (e.g. `tests/**` in project
+// rollup, or a custom pattern that catches `__init__.py`) must not produce a
+// per-file py_test rule under skip_empty_init.
+func TestGeneratePerFileRules_SkipEmptyInitTest(t *testing.T) {
+	cfg := newPyConfig()
+	cfg.skipEmptyInit = true
+	cfg.testPatterns = append(cfg.testPatterns, "**/__init__.py")
+	specs := []FileSpec{{RelPath: "pkg/__init__.py"}}
+	results := map[string]FileImports{"pkg/__init__.py": {IsEmpty: true}}
+	res := generatePerFileRules(cfg, "pkg", specs, results, annotations{})
+	if len(res.Gen) != 0 {
+		t.Errorf("want no rules in file mode for empty __init__.py matched by test pattern, got %d", len(res.Gen))
+	}
+}
+
 // TestGenerateAggregateRules_SkipEmptyInitDirectiveOff verifies opt-in
 // semantics: with the directive off (default), even empty __init__.py files
 // stay in srcs and the rule is emitted.
