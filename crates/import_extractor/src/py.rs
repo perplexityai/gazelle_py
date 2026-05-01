@@ -30,6 +30,11 @@ pub struct PyFileOutput {
     pub modules: Vec<PyModule>,
     pub comments: Vec<String>,
     pub has_main: bool,
+    /// True iff the parsed AST has no top-level statements — i.e. the file
+    /// is whitespace and/or comments only. A docstring, `pass`, or any
+    /// import/assignment counts as a statement and yields false. Drives
+    /// `python_skip_empty_init` on the Go side.
+    pub is_empty: bool,
 }
 
 /// Extract imports from a Python file on disk.
@@ -54,6 +59,8 @@ pub fn extract_imports(source: &str, rel_filepath: &str) -> PyFileOutput {
         ast::Mod::Expression(_) => return empty_output(rel_filepath),
     };
 
+    let is_empty = stmts.is_empty();
+
     let mut modules = Vec::new();
     let mut has_main = false;
 
@@ -73,6 +80,7 @@ pub fn extract_imports(source: &str, rel_filepath: &str) -> PyFileOutput {
         modules,
         comments,
         has_main,
+        is_empty,
     }
 }
 
@@ -349,6 +357,7 @@ fn empty_output(rel_filepath: &str) -> PyFileOutput {
         modules: Vec::new(),
         comments: Vec::new(),
         has_main: false,
+        is_empty: true,
     }
 }
 
@@ -473,6 +482,58 @@ mod tests {
         assert!(out.modules.is_empty());
         assert!(out.comments.is_empty());
         assert!(!out.has_main);
+        assert!(out.is_empty, "blank file should report is_empty=true");
+    }
+
+    #[test]
+    fn whitespace_only_is_empty() {
+        let out = extract_imports("\n\n   \n\t\n", "test.py");
+        assert!(out.is_empty);
+    }
+
+    #[test]
+    fn comments_only_is_empty() {
+        // Whole-line `#` comments don't appear in the AST, so a file made up of
+        // only blank lines and comments has zero top-level statements.
+        let out = extract_imports("# header\n\n# another comment\n", "test.py");
+        assert!(out.is_empty);
+        assert_eq!(out.comments.len(), 2);
+    }
+
+    #[test]
+    fn docstring_only_is_not_empty() {
+        // Module docstrings are real statements (Expr Stmt holding a string
+        // literal) — they assign to `__doc__` at runtime. Treat as code.
+        let out = extract_imports("\"\"\"module docstring\"\"\"\n", "test.py");
+        assert!(!out.is_empty);
+    }
+
+    #[test]
+    fn pass_only_is_not_empty() {
+        let out = extract_imports("pass\n", "test.py");
+        assert!(!out.is_empty);
+    }
+
+    #[test]
+    fn import_only_is_not_empty() {
+        let out = extract_imports("import os\n", "test.py");
+        assert!(!out.is_empty);
+    }
+
+    #[test]
+    fn trailing_comment_on_code_is_not_empty() {
+        // Inline trailing comments are stripped at the AST level but the
+        // assignment is still a real statement.
+        let out = extract_imports("x = 1  # note\n", "test.py");
+        assert!(!out.is_empty);
+    }
+
+    #[test]
+    fn assignment_only_is_not_empty() {
+        // `__all__ = []` is the canonical case where someone explicitly
+        // marks a package as code-bearing despite re-exports living elsewhere.
+        let out = extract_imports("__all__ = []\n", "test.py");
+        assert!(!out.is_empty);
     }
 
     #[test]

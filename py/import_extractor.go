@@ -68,6 +68,7 @@ func extractImports(specs []FileSpec) ([]FileImports, error) {
 				Modules:  modules,
 				Comments: r.Comments,
 				HasMain:  r.HasMain,
+				IsEmpty:  r.IsEmpty,
 			})
 		}
 		return out, nil

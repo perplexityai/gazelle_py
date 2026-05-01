@@ -125,9 +125,10 @@ type pyConfig struct {
 	// resolution and is unrelated to rule rollup).
 	projectRoot string
 
-	// skipEmptyInit, when true, prevents emitting a library rule for
-	// directories whose only source is an empty (or comments-only) `__init__.py`.
-	// Mirrors rules_python's `python_skip_empty_init`.
+	// skipEmptyInit, when true, prevents emitting a library rule when every
+	// source in the rule is an empty (or comments-only) `__init__.py`. Covers
+	// both single-file packages and project-mode rollups of nested empty
+	// inits. Mirrors rules_python's `python_skip_empty_init`.
 	skipEmptyInit bool
 }
 
