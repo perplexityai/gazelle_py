@@ -51,6 +51,11 @@ message PyFileOutput {
   repeated PyModule modules = 2;
   repeated string comments = 3;
   bool has_main = 4;
+  // is_empty is true when the file's parsed AST contains no top-level
+  // statements (purely whitespace and/or comments). A bare docstring,
+  // `pass`, or any import/assignment counts as a statement and yields
+  // false. Drives `python_skip_empty_init`.
+  bool is_empty = 5;
 }
 
 message PyModule {

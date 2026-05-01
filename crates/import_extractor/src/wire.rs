@@ -59,6 +59,7 @@ pub fn handle_py(id: u32, req: pb::PyQueryRequest) -> pb::Response {
                         .collect(),
                     comments: output.comments,
                     has_main: output.has_main,
+                    is_empty: output.is_empty,
                 }),
                 Err(e) => {
                     eprintln!("import_extractor: skipping {}: {e}", f.path);

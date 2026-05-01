@@ -211,7 +211,7 @@ func generateAggregateRules(cfg *pyConfig, rel string, specs []FileSpec, results
 	sort.Strings(libSrcs)
 	sort.Strings(testSrcs)
 
-	skipLib := cfg.skipEmptyInit && isLoneEmptyInit(libSrcs, specs, rel)
+	skipLib := cfg.skipEmptyInit && allEmptyInits(libSrcs, specs, rel, results)
 
 	if (len(libSrcs) == 0 || skipLib) && len(testSrcs) == 0 && !hasConftest {
 		return language.GenerateResult{}
@@ -291,8 +291,10 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 
 	for _, s := range libSpecs {
 		srcName := pkgRelativePath(s.RelPath, rel)
-		if cfg.skipEmptyInit && isInitFile(srcName) && isEmptyPython(s.Path) {
-			continue
+		if cfg.skipEmptyInit && isInitFile(srcName) {
+			if r, ok := results[s.RelPath]; ok && r.IsEmpty {
+				continue
+			}
 		}
 		ruleName := perFileRuleName(srcName)
 		r := rule.NewRule(cfg.libraryKind, ruleName)
@@ -386,41 +388,40 @@ func isConftestAtPackageRoot(srcName string) bool {
 	return srcName == conftestFilename
 }
 
-// isLoneEmptyInit reports whether `libSrcs` is exactly one entry, an
-// `__init__.py`, whose on-disk content is empty (or comments-only).
+// allEmptyInits reports whether every entry in `libSrcs` is an `__init__.py`
+// whose parsed AST has no top-level statements. Empty `libSrcs` returns
+// false — there's nothing to be "all empty inits" about. Emptiness is
+// supplied by the rust import_extractor (FileImports.IsEmpty); a file
+// missing from `results` is treated as non-empty so we never accidentally
+// suppress a rule on a parser cache miss.
 //
 // Used by `python_skip_empty_init`: when true, the caller skips emitting the
-// library rule entirely. We deliberately do NOT strip empty `__init__.py`
-// files from packages that also contain real sources — relative imports
-// (`from . import x`) require the `__init__.py` to be part of the same
-// `py_library` so the package marker ships with the code that imports from it.
-func isLoneEmptyInit(libSrcs []string, specs []FileSpec, rel string) bool {
-	if len(libSrcs) != 1 || !isInitFile(libSrcs[0]) {
+// library rule entirely. This covers both the simple package case (sole src
+// is one empty __init__.py) and the project-mode rollup case (multiple
+// nested empty __init__.py files and nothing else). We deliberately do NOT
+// strip empty `__init__.py` files from packages that also contain real
+// sources — relative imports (`from . import x`) require the `__init__.py`
+// to be part of the same `py_library` as the importing module.
+func allEmptyInits(libSrcs []string, specs []FileSpec, rel string, results map[string]FileImports) bool {
+	if len(libSrcs) == 0 {
 		return false
 	}
+	relBy := make(map[string]string, len(specs))
 	for _, s := range specs {
-		if pkgRelativePath(s.RelPath, rel) == libSrcs[0] {
-			return isEmptyPython(s.Path)
-		}
+		relBy[pkgRelativePath(s.RelPath, rel)] = s.RelPath
 	}
-	return false
-}
-
-// isEmptyPython returns true when a .py file contains no code: only blank
-// lines and comments. A single `pass` statement still counts as code.
-func isEmptyPython(path string) bool {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		// On read error, fall back to "not empty" so we don't accidentally
-		// drop a rule the user actually wants.
-		return false
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	for _, src := range libSrcs {
+		if !isInitFile(src) {
+			return false
 		}
-		return false
+		relPath, ok := relBy[src]
+		if !ok {
+			return false
+		}
+		r, ok := results[relPath]
+		if !ok || !r.IsEmpty {
+			return false
+		}
 	}
 	return true
 }

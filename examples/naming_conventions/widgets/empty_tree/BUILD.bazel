@@ -1,0 +1,6 @@
+# gazelle:python_generation_mode project
+#
+# Project-mode rolls every .py under this directory into a single library.
+# All three sources (here, inner/, and leaf/) are empty __init__.py files,
+# so `python_skip_empty_init` suppresses the rollup rule entirely. This file
+# stays only to carry the directive — no py_library is emitted.
