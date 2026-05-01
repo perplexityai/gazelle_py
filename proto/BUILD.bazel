@@ -4,9 +4,13 @@ load("@rules_proto//proto:defs.bzl", "proto_library")
 # via rust_prost_library) and the Go gazelle plugin (//py/proto, via
 # go_proto_library). Schema is the wire format both sides marshal to/from
 # when the cgo dispatch crosses the FFI boundary.
+# Disambiguate the FileDescriptor path so consumers linking gazelle_py
+# alongside another import-extractor plugin (e.g. gazelle_ts) don't trip
+# Go protobuf's duplicate-file-registration panic at startup.
 proto_library(
     name = "import_extractor_proto",
     srcs = ["message.proto"],
     strip_import_prefix = "/proto",
+    import_prefix = "gazelle_py",
     visibility = ["//visibility:public"],
 )
