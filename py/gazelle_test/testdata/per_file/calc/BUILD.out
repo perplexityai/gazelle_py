@@ -1,0 +1,25 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+# gazelle:python_generation_mode file
+
+py_library(
+    name = "add",
+    srcs = ["add.py"],
+    visibility = ["//visibility:public"],
+)
+
+py_library(
+    name = "mul",
+    srcs = ["mul.py"],
+    visibility = ["//visibility:public"],
+    deps = [":add"],
+)
+
+py_test(
+    name = "add_test",
+    srcs = ["add_test.py"],
+    deps = [
+        ":add",
+        ":mul",
+    ],
+)

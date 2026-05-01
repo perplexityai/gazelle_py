@@ -1,0 +1,20 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+# Roll the entire myproj/ subtree into a single library + test.
+# gazelle:python_generation_mode project
+
+py_library(
+    name = "myproj",
+    srcs = [
+        "main.py",
+        "models/user.py",
+        "utils/format.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+py_test(
+    name = "myproj_test",
+    srcs = ["main_test.py"],
+    deps = [":myproj"],
+)

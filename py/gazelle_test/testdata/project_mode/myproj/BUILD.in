@@ -1,0 +1,2 @@
+# Roll the entire myproj/ subtree into a single library + test.
+# gazelle:python_generation_mode project

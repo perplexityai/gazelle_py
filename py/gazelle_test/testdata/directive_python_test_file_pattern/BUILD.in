@@ -1,0 +1,3 @@
+# Comma-separated value REPLACES the default test patterns
+# (rules_python semantics): we accept *_spec.py only.
+# gazelle:python_test_file_pattern *_spec.py

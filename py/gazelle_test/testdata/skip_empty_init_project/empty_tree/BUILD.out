@@ -1,0 +1,6 @@
+# Project mode rolls every .py beneath this dir into one library + one test
+# rule. With every source an empty __init__.py (including tests/__init__.py
+# matched by the default tests/** test glob) skip_empty_init suppresses BOTH
+# rules — gazelle keeps this BUILD file only to carry the directives.
+# gazelle:python_generation_mode project
+# gazelle:python_skip_empty_init true

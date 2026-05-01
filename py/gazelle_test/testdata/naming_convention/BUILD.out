@@ -1,0 +1,2 @@
+# gazelle:python_library_naming_convention $package_name$_lib
+# gazelle:python_test_naming_convention $package_name$_unittest

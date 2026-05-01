@@ -1,0 +1,3 @@
+# Repeated directives REPLACE (last wins). To grant visibility to multiple
+# scopes, list them whitespace-separated in a single directive.
+# gazelle:python_visibility //tools:__subpackages__ //internal:__subpackages__

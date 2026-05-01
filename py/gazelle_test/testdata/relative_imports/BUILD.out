@@ -1,0 +1,3 @@
+# Even with skip_empty_init enabled, an empty __init__.py with real-code
+# siblings must remain in srcs — `from . import core` won't work without it.
+# gazelle:python_skip_empty_init true

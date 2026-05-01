@@ -1,0 +1,14 @@
+load("//py:gazelle_tests.bzl", "gazelle_tests")
+
+# Fixture-style integration tests for the gazelle_py language extension.
+# Each subdirectory of testdata/ is one fixture; see ./testdata/README.md
+# for the contract.
+gazelle_tests(
+    name = "gazelle_test",
+    srcs = ["gazelle_test.go"],
+    testdata = glob(["testdata/**"]),
+    deps = [
+        "@gazelle//testtools",
+        "@rules_go//go/runfiles",
+    ],
+)
