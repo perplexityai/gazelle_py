@@ -1,6 +1,12 @@
 # gazelle:python_generation_mode project
+# Restore the default `tests/**` pattern (the workspace root replaces the
+# defaults with `*_spec.py,*_test.py`); we want `tests/__init__.py` below to
+# be classified as a test source so this example exercises the test-rule
+# suppression branch of `python_skip_empty_init` as well as the library one.
+# gazelle:python_test_file_pattern *_spec.py,*_test.py,tests/**
 #
-# Project-mode rolls every .py under this directory into a single library.
-# All three sources (here, inner/, and leaf/) are empty __init__.py files,
-# so `python_skip_empty_init` suppresses the rollup rule entirely. This file
-# stays only to carry the directive — no py_library is emitted.
+# Project-mode rolls every .py under this directory into a single library
+# and a single test rule. All sources here are empty `__init__.py` files
+# (including `tests/__init__.py`), so `python_skip_empty_init` suppresses
+# BOTH the rollup library AND the rollup test rule. This file stays only
+# to carry the directives — no py_library or py_test is emitted.
