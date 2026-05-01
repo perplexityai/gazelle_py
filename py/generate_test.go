@@ -252,7 +252,7 @@ func TestIsEmptyPython(t *testing.T) {
 	}
 }
 
-func TestFilterEmptyInits(t *testing.T) {
+func TestIsLoneEmptyInit(t *testing.T) {
 	dir := t.TempDir()
 	emptyInit := filepath.Join(dir, "__init__.py")
 	if err := os.WriteFile(emptyInit, []byte("# blank package marker\n"), 0o644); err != nil {
@@ -267,64 +267,45 @@ func TestFilterEmptyInits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Run("strips lone empty init", func(t *testing.T) {
+	t.Run("lone empty init", func(t *testing.T) {
 		specs := []FileSpec{{Path: emptyInit, RelPath: "pkg/__init__.py"}}
-		got := filterEmptyInits([]string{"__init__.py"}, specs, "pkg")
-		if len(got) != 0 {
-			t.Errorf("got %v, want []", got)
+		if !isLoneEmptyInit([]string{"__init__.py"}, specs, "pkg") {
+			t.Error("want true for single empty __init__.py")
 		}
 	})
 
-	t.Run("strips empty init alongside real code", func(t *testing.T) {
-		// Load-bearing: this is the new behavior — previously we only suppressed
-		// the rule when the package had ONLY an empty __init__.py. Packages with
-		// real siblings now also lose the no-op init from srcs.
+	t.Run("empty init alongside real code is not lone", func(t *testing.T) {
+		// Load-bearing: relative imports (`from . import x`) require __init__.py
+		// to ship in the same py_library as x.py. So when there are siblings we
+		// must keep the rule and keep the __init__.py in srcs.
 		specs := []FileSpec{
 			{Path: emptyInit, RelPath: "pkg/__init__.py"},
 			{Path: regular, RelPath: "pkg/x.py"},
 		}
-		got := filterEmptyInits([]string{"__init__.py", "x.py"}, specs, "pkg")
-		want := []string{"x.py"}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("got %v, want %v", got, want)
+		if isLoneEmptyInit([]string{"__init__.py", "x.py"}, specs, "pkg") {
+			t.Error("want false when __init__.py has siblings")
 		}
 	})
 
-	t.Run("keeps non-empty init", func(t *testing.T) {
-		specs := []FileSpec{
-			{Path: nonEmptyInit, RelPath: "pkg/__init__.py"},
-			{Path: regular, RelPath: "pkg/x.py"},
-		}
-		got := filterEmptyInits([]string{"__init__.py", "x.py"}, specs, "pkg")
-		want := []string{"__init__.py", "x.py"}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("got %v, want %v", got, want)
+	t.Run("non-empty init", func(t *testing.T) {
+		specs := []FileSpec{{Path: nonEmptyInit, RelPath: "pkg/__init__.py"}}
+		if isLoneEmptyInit([]string{"__init__.py"}, specs, "pkg") {
+			t.Error("want false for non-empty __init__.py")
 		}
 	})
 
-	t.Run("strips nested empty init in project-mode rollup", func(t *testing.T) {
-		// In project mode libSrcs entries can be sub-paths like `sub/__init__.py`.
-		// Filtering must reach those too — otherwise project-mode rollups still
-		// drag the no-op init files in.
-		nestedInit := filepath.Join(dir, "nested__init__.py")
-		if err := os.WriteFile(nestedInit, []byte(""), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		specs := []FileSpec{
-			{Path: nestedInit, RelPath: "proj/sub/__init__.py"},
-			{Path: regular, RelPath: "proj/sub/x.py"},
-		}
-		got := filterEmptyInits([]string{"sub/__init__.py", "sub/x.py"}, specs, "proj")
-		want := []string{"sub/x.py"}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("got %v, want %v", got, want)
+	t.Run("non-init lone src", func(t *testing.T) {
+		specs := []FileSpec{{Path: regular, RelPath: "pkg/x.py"}}
+		if isLoneEmptyInit([]string{"x.py"}, specs, "pkg") {
+			t.Error("want false for non-init lone source")
 		}
 	})
 }
 
-// TestGenerateAggregateRules_SkipEmptyInitMixed makes sure the directive's
-// new semantics flow end-to-end: an empty __init__.py + a real source file
-// emits a library rule with srcs=[the real file], not srcs=[both].
+// TestGenerateAggregateRules_SkipEmptyInitMixed verifies that an empty
+// __init__.py sitting alongside real code stays in the library's srcs.
+// Stripping it would break `from . import app` style relative imports
+// because the package marker would no longer ship with the rule.
 func TestGenerateAggregateRules_SkipEmptyInitMixed(t *testing.T) {
 	dir := t.TempDir()
 	emptyInit := filepath.Join(dir, "__init__.py")
@@ -347,14 +328,14 @@ func TestGenerateAggregateRules_SkipEmptyInitMixed(t *testing.T) {
 		t.Fatalf("want 1 rule, got %d", len(res.Gen))
 	}
 	got := snapshot(res.Gen[0])
-	if !reflect.DeepEqual(got.srcs, []string{"app.py"}) {
-		t.Errorf("library srcs = %v, want [app.py] (empty __init__.py must be filtered)", got.srcs)
+	if !reflect.DeepEqual(got.srcs, []string{"__init__.py", "app.py"}) {
+		t.Errorf("library srcs = %v, want [__init__.py app.py] (empty __init__.py must remain so relative imports work)", got.srcs)
 	}
 }
 
-// TestGenerateAggregateRules_SkipEmptyInitOnly keeps the original "no rule
-// when only empty init exists" guarantee, now achieved by filtering rather
-// than the dedicated isEmptyInitOnly check.
+// TestGenerateAggregateRules_SkipEmptyInitOnly is the only case where the
+// directive suppresses a rule: a package whose sole source is an empty
+// __init__.py.
 func TestGenerateAggregateRules_SkipEmptyInitOnly(t *testing.T) {
 	dir := t.TempDir()
 	emptyInit := filepath.Join(dir, "__init__.py")
