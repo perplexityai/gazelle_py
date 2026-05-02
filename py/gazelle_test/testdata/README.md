@@ -5,7 +5,7 @@ Each subdirectory is one fixture, driven by
 
 ```
 testdata/<fixture>/
-├── WORKSPACE              # marker so gazelle treats this as a workspace root
+├── MODULE.bazel           # marker so gazelle treats this as a repo root
 ├── BUILD.in               # optional; renamed to BUILD.bazel before gazelle runs
 ├── BUILD.out              # expected BUILD.bazel after gazelle runs
 ├── arguments.txt          # optional; newline-delimited gazelle CLI args
