@@ -8,7 +8,7 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
-// All directives this plugin recognizes. Keep in sync with README.md.
+// All directives this plugin recognizes. Keep in sync with ../README.md.
 //
 // Directive keys mirror rules_python's gazelle plugin so consumers can
 // switch between the two without rewriting their BUILD-file directives.

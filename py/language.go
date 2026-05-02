@@ -20,7 +20,7 @@
 //  3. Resolve (resolve.go): convert parsed imports into Bazel deps labels.
 //
 // All configuration lives in BUILD-file directives (see configure.go); see
-// README.md for the full list and examples.
+// ../README.md for the full list and examples.
 package py
 
 import (
