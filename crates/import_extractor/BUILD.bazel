@@ -1,3 +1,4 @@
+load("@rules_go//go:def.bzl", "go_test")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
@@ -52,7 +53,22 @@ opt_rust_static_library(
     deps = _LIB_DEPS,
 )
 
+genrule(
+    name = "ffi_symbols_nm",
+    srcs = [":import_extractor_static"],
+    outs = ["ffi_symbols_nm.txt"],
+    cmd = "nm -g $(location :import_extractor_static) > $@ 2>&1 || true",
+)
+
 rust_test(
     name = "test",
     crate = ":import_extractor",
+)
+
+go_test(
+    name = "ffi_symbols_test",
+    srcs = ["ffi_symbols_test.go"],
+    args = ["-symbols=$(location :ffi_symbols_nm)"],
+    data = [":ffi_symbols_nm"],
+    importpath = "github.com/hermeticbuild/gazelle_py/crates/import_extractor/ffi_symbols_test",
 )

@@ -1,22 +1,22 @@
 // Package-internal cgo bridge to the Rust import_extractor staticlib.
 //
 // The crate at //crates/import_extractor exposes a 2-function C ABI
-// (ie_dispatch / ie_free) wrapping the protobuf wire dispatcher. We marshal a
-// Request, hand the bytes to ie_dispatch, unmarshal the Response, and free
-// the buffer the Rust side allocated.
+// (gazelle_py_ie_dispatch / gazelle_py_ie_free) wrapping the protobuf wire
+// dispatcher. We marshal a Request, hand the bytes to gazelle_py_ie_dispatch,
+// unmarshal the Response, and free the buffer the Rust side allocated.
 package py
 
 /*
 #include <stddef.h>
 #include <stdint.h>
 
-void ie_dispatch(
+void gazelle_py_ie_dispatch(
     const uint8_t *req_ptr,
     size_t req_len,
     uint8_t **out_resp_ptr,
     size_t *out_resp_len);
 
-void ie_free(uint8_t *ptr, size_t len);
+void gazelle_py_ie_free(uint8_t *ptr, size_t len);
 */
 import "C"
 
@@ -90,12 +90,12 @@ func dispatch(req *pb.Request) (*pb.Response, error) {
 
 	var respPtr *C.uint8_t
 	var respLen C.size_t
-	C.ie_dispatch(reqPtr, C.size_t(len(reqBytes)), &respPtr, &respLen)
+	C.gazelle_py_ie_dispatch(reqPtr, C.size_t(len(reqBytes)), &respPtr, &respLen)
 
 	if respPtr == nil || respLen == 0 {
 		return nil, fmt.Errorf("import-extractor: empty response from FFI")
 	}
-	defer C.ie_free(respPtr, respLen)
+	defer C.gazelle_py_ie_free(respPtr, respLen)
 
 	respBytes := C.GoBytes(unsafe.Pointer(respPtr), C.int(respLen))
 	var resp pb.Response
