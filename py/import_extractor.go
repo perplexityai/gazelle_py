@@ -1,4 +1,4 @@
-// Package-internal cgo bridge to the Rust import_extractor staticlib.
+// Package-internal cgo bridge to the Rust import_extractor library.
 //
 // The crate at //crates/import_extractor exposes a 2-function C ABI
 // (gazelle_py_ie_dispatch / gazelle_py_ie_free) wrapping the protobuf wire
