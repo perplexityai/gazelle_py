@@ -10,7 +10,7 @@ Parsing Python correctly enough to drive `BUILD.bazel` generation is significant
 
 ```mermaid
 flowchart LR
-    Caller["Go gazelle plugin\n(import_extractor.go)"] -- "PyQueryRequest bytes" --> ffi["ie_dispatch (FFI)"]
+    Caller["Go gazelle plugin\n(import_extractor.go)"] -- "PyQueryRequest bytes" --> ffi["gazelle_py_ie_dispatch (FFI)"]
     ffi --> wire["wire::dispatch"]
     wire --> handle["wire::handle_py"]
     handle --> par["rayon par_iter"]
@@ -21,7 +21,7 @@ flowchart LR
     emit --> resp["PyFileOutput\n(modules + comments + has_main)"]
     resp -- "PyResponseResult bytes" --> ffi
     ffi -- "ownership transferred" --> Caller
-    Caller -- "ie_free" --> Drop[(buffer freed)]
+    Caller -- "gazelle_py_ie_free" --> Drop[(buffer freed)]
 ```
 
 What we capture per file:
@@ -37,23 +37,23 @@ What we capture per file:
 Two functions, declared in `src/ffi.rs`:
 
 ```c
-void ie_dispatch(
+void gazelle_py_ie_dispatch(
     const uint8_t *req_ptr,
     size_t req_len,
     uint8_t **out_resp_ptr,
     size_t *out_resp_len);
 
-void ie_free(uint8_t *ptr, size_t len);
+void gazelle_py_ie_free(uint8_t *ptr, size_t len);
 ```
 
-`ie_dispatch` decodes a protobuf `Request`, parses the requested files in parallel, encodes a `Response`, and hands ownership of the buffer back via the out-parameters. The caller releases it with `ie_free`. The encoding follows the protobuf schema in [`../../proto/message.proto`](../../proto/message.proto).
+`gazelle_py_ie_dispatch` decodes a protobuf `Request`, parses the requested files in parallel, encodes a `Response`, and hands ownership of the buffer back via the out-parameters. The caller releases it with `gazelle_py_ie_free`. The encoding follows the protobuf schema in [`../../proto/message.proto`](../../proto/message.proto).
 
 ## Layout
 
 ```
 src/
 ├── lib.rs   # re-exports ffi, py, wire modules
-├── ffi.rs   # C ABI surface (ie_dispatch / ie_free)
+├── ffi.rs   # C ABI surface (gazelle_py_ie_dispatch / gazelle_py_ie_free)
 ├── wire.rs  # protobuf request/response dispatcher
 └── py.rs    # ruff-based Python AST visitor
 ```

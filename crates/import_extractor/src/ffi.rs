@@ -2,13 +2,13 @@
 //
 // Two functions:
 //
-//   ie_dispatch(req_ptr, req_len, *out_resp_ptr, *out_resp_len)
+//   gazelle_py_ie_dispatch(req_ptr, req_len, *out_resp_ptr, *out_resp_len)
 //     Decodes a protobuf Request, dispatches, encodes the Response, and hands
 //     the encoded bytes back via the out parameters. The caller owns them
-//     until ie_free.
+//     until gazelle_py_ie_free.
 //
-//   ie_free(ptr, len)
-//     Releases bytes returned by ie_dispatch.
+//   gazelle_py_ie_free(ptr, len)
+//     Releases bytes returned by gazelle_py_ie_dispatch.
 
 use crate::wire;
 use std::slice;
@@ -16,9 +16,10 @@ use std::slice;
 /// # Safety
 /// `req_ptr` must point to `req_len` valid bytes. `out_resp_ptr` and
 /// `out_resp_len` must be valid out-pointers. The bytes written to
-/// `*out_resp_ptr` are owned by the caller until they call `ie_free`.
+/// `*out_resp_ptr` are owned by the caller until they call
+/// `gazelle_py_ie_free`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ie_dispatch(
+pub unsafe extern "C" fn gazelle_py_ie_dispatch(
     req_ptr: *const u8,
     req_len: usize,
     out_resp_ptr: *mut *mut u8,
@@ -43,10 +44,10 @@ pub unsafe extern "C" fn ie_dispatch(
 }
 
 /// # Safety
-/// `ptr` must have been returned by `ie_dispatch` paired with the same `len`.
-/// Calling with a null pointer is a no-op.
+/// `ptr` must have been returned by `gazelle_py_ie_dispatch` paired with the
+/// same `len`. Calling with a null pointer is a no-op.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ie_free(ptr: *mut u8, len: usize) {
+pub unsafe extern "C" fn gazelle_py_ie_free(ptr: *mut u8, len: usize) {
     if ptr.is_null() || len == 0 {
         return;
     }
@@ -75,7 +76,7 @@ mod tests {
         let mut out_ptr: *mut u8 = ptr::null_mut();
         let mut out_len: usize = 0;
         unsafe {
-            ie_dispatch(req.as_ptr(), req.len(), &mut out_ptr, &mut out_len);
+            gazelle_py_ie_dispatch(req.as_ptr(), req.len(), &mut out_ptr, &mut out_len);
         }
         assert!(!out_ptr.is_null());
         assert!(out_len > 0);
@@ -85,7 +86,7 @@ mod tests {
         assert_eq!(resp.id, 42);
         assert!(matches!(resp.data, Some(pb::response::Data::PyResult(_))));
 
-        unsafe { ie_free(out_ptr, out_len) };
+        unsafe { gazelle_py_ie_free(out_ptr, out_len) };
     }
 
     #[test]
@@ -93,18 +94,18 @@ mod tests {
         let mut out_ptr: *mut u8 = ptr::null_mut();
         let mut out_len: usize = 0;
         unsafe {
-            ie_dispatch(ptr::null(), 0, &mut out_ptr, &mut out_len);
+            gazelle_py_ie_dispatch(ptr::null(), 0, &mut out_ptr, &mut out_len);
         }
         assert!(!out_ptr.is_null());
         let resp_bytes = unsafe { slice::from_raw_parts(out_ptr, out_len) };
         let resp = pb::Response::decode(resp_bytes).expect("decode");
         assert!(matches!(resp.data, Some(pb::response::Data::Error(_))));
-        unsafe { ie_free(out_ptr, out_len) };
+        unsafe { gazelle_py_ie_free(out_ptr, out_len) };
     }
 
     #[test]
-    fn ie_free_handles_null_and_zero() {
-        unsafe { ie_free(ptr::null_mut(), 0) };
-        unsafe { ie_free(ptr::null_mut(), 100) };
+    fn gazelle_py_ie_free_handles_null_and_zero() {
+        unsafe { gazelle_py_ie_free(ptr::null_mut(), 0) };
+        unsafe { gazelle_py_ie_free(ptr::null_mut(), 100) };
     }
 }
