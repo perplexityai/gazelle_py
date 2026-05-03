@@ -4,11 +4,12 @@ build --registry=https://bcr.bazel.build
 
 # Use the hermetic @llvm cc toolchain (registered in MODULE.bazel); disabling
 # autodetect avoids XcodeLocalEnvProvider's duplicate-SDKROOT crash on macOS
-# hosts with Xcode. Stub libgcc_s so rules_rust's hardcoded `-lgcc_s` link
-# spec resolves against @llvm's compiler-rt.
+# hosts with Xcode. Stub libgcc_s so rules_rust tool binaries avoid a
+# non-hermetic system libgcc_s dependency.
 common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 common --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
 common --@llvm//config:experimental_stub_libgcc_s=True
+common --@rules_rust//rust/settings:experimental_use_allocator_libraries_with_mangled_symbols=true
 
 # Go 1.27 (Aug 2026) makes Go binaries PIE-compatible — drop this then.
 # Until then, rules_go's external link via clang+lld needs -no-pie because

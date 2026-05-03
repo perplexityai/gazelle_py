@@ -5,10 +5,17 @@ module(
 
 bazel_dep(name = "rules_python", version = "1.5.4")
 bazel_dep(name = "gazelle", version = "0.50.0")
+
 # @llvm is visible only because we declare it directly: needed to reference
 # `@llvm//config:experimental_stub_libgcc_s` in .bazelrc. Bzlmod doesn't
 # transitively expose deps' repos to consumers.
 bazel_dep(name = "llvm", version = "0.7.3")
+
+# Expose @rules_rust so .bazelrc can set Rust allocator symbol mode.
+bazel_dep(name = "rules_rs", version = "0.0.72")
+
+rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
+use_repo(rules_rust, "rules_rust")
 
 bazel_dep(name = "gazelle_py", version = "0.0.0")
 local_path_override(

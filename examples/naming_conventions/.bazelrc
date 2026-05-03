@@ -8,10 +8,11 @@ common:linux --host_platform=@gazelle_py//platforms:local_gnu
 
 # Use @gazelle_py's hermetic @llvm cc toolchain; disable Bazel's autodetect
 # to avoid the XcodeLocalEnvProvider SDKROOT crash on macOS. Stub libgcc_s
-# so rules_rust's `-lgcc_s` link spec resolves against compiler-rt.
+# so rules_rust tool binaries avoid a non-hermetic system libgcc_s dependency.
 common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 common --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
 common --@llvm//config:experimental_stub_libgcc_s=True
+common --@rules_rust//rust/settings:experimental_use_allocator_libraries_with_mangled_symbols=true
 
 # Go 1.27 (Aug 2026) makes Go binaries PIE-compatible — drop this then.
 build:linux --linkopt=-no-pie

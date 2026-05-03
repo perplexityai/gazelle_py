@@ -29,11 +29,20 @@ go_library(
         "stdlib.go",
     ],
     cgo = True,
-    # Rust import_extractor staticlib linked via cgo. The wrapper in
-    # //crates/import_extractor pins compilation_mode=opt and the release
-    # rustc flags via with_cfg, so consumers get an optimized binary even
-    # when their own bazel invocation runs in fastbuild.
-    cdeps = ["//crates/import_extractor:import_extractor_static"],
+    # Link the Rust rlib via cgo so transitive Rust crates remain dedupable.
+    cdeps = ["//crates/import_extractor:import_extractor"],
+    # Rust std needs libunwind when linked through rlibs into a final cgo
+    # binary. Force-load it because the Rust stdlib archive can otherwise
+    # appear before the objects that reference _Unwind symbols.
+    clinkopts = select({
+        "@platforms//os:linux": [
+            "-ldl",
+            "-Wl,--whole-archive",
+            "-lunwind",
+            "-Wl,--no-whole-archive",
+        ],
+        "//conditions:default": [],
+    }),
     importpath = "github.com/hermeticbuild/gazelle_py/py",
     visibility = ["//visibility:public"],
     deps = [
@@ -61,6 +70,16 @@ go_test(
         "resolve_test.go",
     ],
     embed = [":py"],
+    # Mirror the go_library's runtime linkopts; go_test relinks the cgo'd rlib.
+    clinkopts = select({
+        "@platforms//os:linux": [
+            "-ldl",
+            "-Wl,--whole-archive",
+            "-lunwind",
+            "-Wl,--no-whole-archive",
+        ],
+        "//conditions:default": [],
+    }),
     deps = [
         "@gazelle//config",
         "@gazelle//resolve",
