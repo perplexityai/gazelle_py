@@ -49,15 +49,12 @@ opt_rust_static_library(
     name = "import_extractor_static",
     srcs = _LIB_SRCS,
     edition = "2021",
+    exported_symbols = [
+        "gazelle_py_ie_dispatch",
+        "gazelle_py_ie_free",
+    ],
     visibility = ["//visibility:public"],
     deps = _LIB_DEPS,
-)
-
-genrule(
-    name = "ffi_symbols_nm",
-    srcs = [":import_extractor_static"],
-    outs = ["ffi_symbols_nm.txt"],
-    cmd = "nm -g $(location :import_extractor_static) > $@ 2>&1 || true",
 )
 
 rust_test(
@@ -68,7 +65,7 @@ rust_test(
 go_test(
     name = "ffi_symbols_test",
     srcs = ["ffi_symbols_test.go"],
-    args = ["-symbols=$(location :ffi_symbols_nm)"],
-    data = [":ffi_symbols_nm"],
+    args = ["-symbols=$(location :import_extractor_static)"],
+    data = [":import_extractor_static"],
     importpath = "github.com/hermeticbuild/gazelle_py/crates/import_extractor/ffi_symbols_test",
 )

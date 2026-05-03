@@ -17,7 +17,12 @@ bazel_dep(name = "with_cfg.bzl", version = "0.14.6")
 # Source of @llvm//constraints/libc:gnu.2.28 — the libc constraint that
 # rules_rs's Linux toolchains pin via target_compatible_with, applied to our
 # host platform at //platforms:local_gnu.
-bazel_dep(name = "llvm", version = "0.7.3")
+bazel_dep(name = "llvm", version = "0.7.6")
+single_version_override(
+    module_name = "llvm",
+    patch_strip = 1,
+    patches = ["//third_party/llvm/patches:llvm_module_ld64_lld_r.patch"],
+)
 
 # Hermetic clang toolchain. Replaces Bazel's autodetected `@local_config_cc`
 # so APPLE_SDK_PLATFORM never reaches the action env on macOS, avoiding
@@ -30,6 +35,10 @@ register_toolchains("@llvm//toolchain:all")
 # @rules_rust//:extra_rustc_flags. Also keeps rules_rs's internal loads
 # resolving against the same canonical repo for toolchain_type matching.
 rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
+rules_rust.patch(
+    patches = ["//third_party/rules_rust/patches:staticlib_exported_symbols.patch"],
+    strip = 1,
+)
 use_repo(rules_rust, "rules_rust")
 
 # Rust toolchain — propagates to consumers because their gazelle_binary
@@ -84,7 +93,6 @@ go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//:go.mod")
 use_repo(
     go_deps,
-    "com_github_bazelbuild_buildtools",
     "com_github_bmatcuk_doublestar_v4",
     "com_github_burntsushi_toml",
     "org_golang_google_protobuf",
