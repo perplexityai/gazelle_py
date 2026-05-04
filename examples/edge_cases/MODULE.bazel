@@ -12,7 +12,7 @@ bazel_dep(name = "gazelle", version = "0.50.0")
 bazel_dep(name = "llvm", version = "0.7.3")
 
 # Expose @rules_rust so .bazelrc can set Rust allocator symbol mode.
-bazel_dep(name = "rules_rs", version = "0.0.72")
+bazel_dep(name = "rules_rs", version = "0.0.73")
 
 rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
 use_repo(rules_rust, "rules_rust")
