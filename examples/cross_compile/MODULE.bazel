@@ -7,7 +7,7 @@ module(
 # against the same version gazelle_py declares — `--platforms=...darwin`
 # analysis must resolve the macOS rust toolchain's `@macos_sdk//sysroot`
 # reference cleanly from `@@gazelle_py+`.
-bazel_dep(name = "rules_rs", version = "0.0.72")
+bazel_dep(name = "rules_rs", version = "0.0.73")
 bazel_dep(name = "gazelle", version = "0.50.0")
 bazel_dep(name = "llvm", version = "0.7.6")
 bazel_dep(name = "gazelle_py", version = "0.0.0")
