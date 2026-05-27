@@ -20,6 +20,11 @@
             "name": "Ryan Siu",
             "email": "ryansiu@perplexity.ai",
             "github": "ryansiu-pplx"
+        },
+        {
+            "email": "ossmaintainers@perplexity.ai",
+            "github": "pplx-oss",
+            "github_user_id": 287052873
         }
     ],
     "repository": ["github:perplexityai/gazelle_py"],
