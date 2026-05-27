@@ -261,4 +261,4 @@ The plugin still emits the stock kinds; Gazelle rewrites the kind name and load 
 bazel test //...
 ```
 
-CI runs the full matrix: `{linux-x86_64, macos-arm64} × {bazel 9.0.0, bazel 8.6.0}` for the top-level test job, plus the `basic` and `composite` example workspaces against both Bazel versions on Linux. The BCR presubmit covers `{debian11, macos, ubuntu2204} × {9.x, 8.5.x}`.
+CI runs `bazel test //...` on Linux x86_64 (`ubuntu-24.04-16core`) for Bazel 9.0.0 and 8.6.0. macOS is a non-PR `//py:py_test` smoke, while the example workspaces and darwin-target cross-compile analysis run on Linux. The BCR presubmit covers `{ubuntu2204, macos_arm64} × {9.x, 8.x}`.
