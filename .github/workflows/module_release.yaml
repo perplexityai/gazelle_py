@@ -55,6 +55,7 @@ jobs:
     with:
       tag_name: ${{ inputs.tag || github.ref_name }}
       registry_fork: perplexityai/bazel-central-registry
+      draft: false
     permissions:
       actions: read
       attestations: write
