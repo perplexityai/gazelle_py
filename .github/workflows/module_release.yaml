@@ -1,16 +1,20 @@
 name: module-release
 
 # Releases the `gazelle_py` Bazel module to GitHub Releases and submits it
-# to the Bazel Central Registry via bazel-contrib/publish-to-bcr.
+# to the Bazel Central Registry.
 #
 # Tag scheme: `vX.Y.Z`.
 #
-# The `release` job uses bazel-contrib's reusable release_ruleset workflow,
-# which runs `bazel test //...`, calls `.github/workflows/release_prep.sh` to
-# generate the source tarball + release notes, produces sigstore build
-# provenance for each archive, and creates the GitHub release with the files,
-# notes, and `.intoto.jsonl` attestations attached. publish-to-bcr then reads
-# those attestations as part of the BCR submission.
+# The `release` job runs `bazel test //...`, calls
+# `.github/workflows/release_prep.sh` to generate the source tarball + release
+# notes, produces sigstore build provenance for each archive, and creates the
+# GitHub release with the files, notes, and `.intoto.jsonl` attestations
+# attached. publish-to-bcr then reads those attestations as part of the BCR
+# submission.
+#
+# The reusable workflows are kept repo-local because org policy requires
+# transitive actions to be pinned by SHA. The release build also needs a 16-core
+# Ubuntu 24 runner because it cross-compiles as part of `bazel test //...`.
 #
 # Prerequisites for the BCR submission to succeed:
 #   1. A fork of github.com/bazelbuild/bazel-central-registry under the org
@@ -32,13 +36,14 @@ on:
         required: true
 
 permissions:
+  actions: read
   attestations: write
   contents: write
   id-token: write
 
 jobs:
   release:
-    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.4.0
+    uses: ./.github/workflows/release_ruleset_pinned.yaml
     with:
       release_files: gazelle_py-*.tar.gz
       prerelease: false
@@ -46,11 +51,12 @@ jobs:
 
   publish-to-bcr:
     needs: release
-    uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v1.2.0
+    uses: ./.github/workflows/publish_to_bcr_pinned.yaml
     with:
       tag_name: ${{ inputs.tag || github.ref_name }}
       registry_fork: hermeticbuild/bazel-central-registry
     permissions:
+      actions: read
       attestations: write
       contents: write
       id-token: write
