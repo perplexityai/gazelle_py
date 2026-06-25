@@ -1,9 +1,11 @@
 package py
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
+	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
@@ -210,13 +212,13 @@ func TestPkgRelativePath(t *testing.T) {
 
 func TestPerFileRuleName(t *testing.T) {
 	cases := map[string]string{
-		"main.py":          "main",
-		"helpers.py":       "helpers",
-		"utils/h.py":       "h",
-		"types.pyi":        "types",
-		"foo_test.py":      "foo_test",
-		"tests/api_t.py":   "api_t",
-		"_internal_x.py":   "_internal_x",
+		"main.py":        "main",
+		"helpers.py":     "helpers",
+		"utils/h.py":     "h",
+		"types.pyi":      "types",
+		"foo_test.py":    "foo_test",
+		"tests/api_t.py": "api_t",
+		"_internal_x.py": "_internal_x",
 	}
 	for in, want := range cases {
 		if got := perFileRuleName(in); got != want {
@@ -317,7 +319,7 @@ func TestGenerateAggregateRules_SkipEmptyInitMixed(t *testing.T) {
 		"pkg/__init__.py": {IsEmpty: true},
 		"pkg/app.py":      {IsEmpty: false},
 	}
-	res := generateAggregateRules(cfg, "pkg", specs, results, annotations{})
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule, got %d", len(res.Gen))
 	}
@@ -342,7 +344,7 @@ func TestGenerateAggregateRules_SkipEmptyInitProjectRollup(t *testing.T) {
 		"proj/__init__.py":     {IsEmpty: true},
 		"proj/sub/__init__.py": {IsEmpty: true},
 	}
-	res := generateAggregateRules(cfg, "proj", specs, results, annotations{})
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 0 {
 		t.Errorf("want no rules when every rolled-up src is an empty __init__.py, got %d", len(res.Gen))
 	}
@@ -356,7 +358,7 @@ func TestGenerateAggregateRules_SkipEmptyInitOnly(t *testing.T) {
 	cfg.skipEmptyInit = true
 	specs := []FileSpec{{RelPath: "pkg/__init__.py"}}
 	results := map[string]FileImports{"pkg/__init__.py": {IsEmpty: true}}
-	res := generateAggregateRules(cfg, "pkg", specs, results, annotations{})
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 0 {
 		t.Errorf("want no rules, got %d", len(res.Gen))
 	}
@@ -374,7 +376,7 @@ func TestGenerateAggregateRules_SkipEmptyInitTestsOnly(t *testing.T) {
 	cfg.skipEmptyInit = true
 	specs := []FileSpec{{RelPath: "proj/tests/__init__.py"}}
 	results := map[string]FileImports{"proj/tests/__init__.py": {IsEmpty: true}}
-	res := generateAggregateRules(cfg, "proj", specs, results, annotations{})
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 0 {
 		t.Errorf("want no rules when only test src is empty tests/__init__.py, got %d", len(res.Gen))
 	}
@@ -394,7 +396,7 @@ func TestGenerateAggregateRules_SkipEmptyInitTestsAlongsideLib(t *testing.T) {
 		"proj/app.py":            {IsEmpty: false},
 		"proj/tests/__init__.py": {IsEmpty: true},
 	}
-	res := generateAggregateRules(cfg, "proj", specs, results, annotations{})
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule (library only — empty tests/__init__.py suppressed), got %d", len(res.Gen))
 	}
@@ -422,7 +424,7 @@ func TestGenerateAggregateRules_SkipEmptyInitRealTestKept(t *testing.T) {
 		"proj/tests/__init__.py": {IsEmpty: true},
 		"proj/tests/test_app.py": {IsEmpty: false},
 	}
-	res := generateAggregateRules(cfg, "proj", specs, results, annotations{})
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule (test, real src present), got %d", len(res.Gen))
 	}
@@ -458,7 +460,7 @@ func TestGenerateAggregateRules_SkipEmptyInitDirectiveOff(t *testing.T) {
 	cfg := newPyConfig() // skipEmptyInit defaults to false
 	specs := []FileSpec{{RelPath: "pkg/__init__.py"}}
 	results := map[string]FileImports{"pkg/__init__.py": {IsEmpty: true}}
-	res := generateAggregateRules(cfg, "pkg", specs, results, annotations{})
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule when directive off, got %d", len(res.Gen))
 	}
@@ -497,7 +499,7 @@ func TestGenerateAggregateRules_ConftestExtracted(t *testing.T) {
 		{RelPath: "pkg/conftest.py"},
 		{RelPath: "pkg/app_test.py"},
 	}
-	res := generateAggregateRules(cfg, "pkg", specs, nil, annotations{})
+	res := generateAggregateRules(cfg, nil, "pkg", specs, nil, annotations{}, nil, false)
 	if len(res.Gen) != 3 {
 		t.Fatalf("want 3 rules (lib, conftest, test), got %d", len(res.Gen))
 	}
@@ -541,7 +543,7 @@ func TestGenerateAggregateRules_ConftestExtracted(t *testing.T) {
 func TestGenerateAggregateRules_ConftestOnly(t *testing.T) {
 	cfg := newPyConfig()
 	specs := []FileSpec{{RelPath: "tests/conftest.py"}}
-	res := generateAggregateRules(cfg, "tests", specs, nil, annotations{})
+	res := generateAggregateRules(cfg, nil, "tests", specs, nil, annotations{}, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want exactly 1 rule, got %d", len(res.Gen))
 	}
@@ -564,7 +566,7 @@ func TestGenerateAggregateRules_NestedConftestStays(t *testing.T) {
 		{RelPath: "pkg/app.py"},
 		{RelPath: "pkg/sub/conftest.py"},
 	}
-	res := generateAggregateRules(cfg, "pkg", specs, nil, annotations{})
+	res := generateAggregateRules(cfg, nil, "pkg", specs, nil, annotations{}, nil, false)
 	for _, r := range res.Gen {
 		if r.Name() == "conftest" {
 			t.Errorf("nested conftest must not produce a :conftest rule at this level")
@@ -603,6 +605,230 @@ func TestGeneratePerFileRules_ConftestTestonly(t *testing.T) {
 	if !conf.testonly {
 		t.Errorf("file-mode :conftest must set testonly=True")
 	}
+}
+
+func TestGenerateAggregateRules_HandRolledTargetsPackageModeOnly(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "models",
+    srcs = ["models.py"],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/models.py"}}
+	results := map[string]FileImports{"pkg/models.py": {}}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, file, false)
+
+	for _, r := range res.Gen {
+		if r.Name() == "models" {
+			t.Fatalf("hand-rolled :models target must not be managed outside package generation mode")
+		}
+	}
+}
+
+func TestGenerateHandRolledRules_EmitsParsedExtraTargets(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+py_library(
+    name = "pkg",
+    srcs = ["pkg.py"],
+)
+
+py_library(
+    name = "models",
+    srcs = ["models.py"],
+)
+
+py_test(
+    name = "models_test",
+    srcs = ["models_test.py"],
+)
+
+py_library(
+    name = "excluded",
+    srcs = ["excluded.py"],
+)
+
+py_library(
+    name = "empty",
+)
+
+filegroup(
+    name = "data",
+    srcs = ["data.json"],
+)
+`)
+	results := map[string]FileImports{
+		"pkg/pkg.py": {
+			Modules: []ImportStatement{{ImportPath: "should.not.appear", SourceFile: "pkg/pkg.py"}},
+		},
+		"pkg/models.py": {
+			Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/models.py"}},
+		},
+		"pkg/models_test.py": {
+			Modules: []ImportStatement{{ImportPath: "pytest", SourceFile: "pkg/models_test.py"}},
+		},
+	}
+	annot := annotations{
+		ignore:     map[string]bool{"ignored": true},
+		includeDep: []string{"//manual:runtime"},
+	}
+
+	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg", results, annot, file, map[string]bool{
+		"pkg":      true,
+		"pkg_test": true,
+		"conftest": true,
+	})
+
+	if len(genRules) != 2 {
+		t.Fatalf("want 2 hand-rolled rules, got %d", len(genRules))
+	}
+	if len(genImports) != len(genRules) {
+		t.Fatalf("imports length = %d, want %d", len(genImports), len(genRules))
+	}
+
+	byName := map[string]*ruleSnapshot{}
+	importsByName := map[string]ImportData{}
+	for i, r := range genRules {
+		byName[r.Name()] = snapshot(r)
+		data, ok := genImports[i].(ImportData)
+		if !ok {
+			t.Fatalf("imports[%d] has type %T, want ImportData", i, genImports[i])
+		}
+		importsByName[r.Name()] = data
+	}
+
+	models := byName["models"]
+	if models == nil {
+		t.Fatalf("missing :models; have %v", keys(byName))
+	}
+	if models.kind != defaultLibraryKind {
+		t.Errorf(":models kind = %q, want %q", models.kind, defaultLibraryKind)
+	}
+	if !reflect.DeepEqual(models.srcs, []string{"models.py"}) {
+		t.Errorf(":models srcs = %v, want [models.py]", models.srcs)
+	}
+	modelsImports := importsByName["models"]
+	if !reflect.DeepEqual(modelsImports.Imports, results["pkg/models.py"].Modules) {
+		t.Errorf(":models imports = %v, want %v", modelsImports.Imports, results["pkg/models.py"].Modules)
+	}
+	if len(modelsImports.TestImports) != 0 {
+		t.Errorf(":models TestImports = %v, want none", modelsImports.TestImports)
+	}
+	if !modelsImports.Ignore["ignored"] {
+		t.Errorf(":models did not receive ignore annotations")
+	}
+	if !reflect.DeepEqual(modelsImports.IncludeDeps, []string{"//manual:runtime"}) {
+		t.Errorf(":models IncludeDeps = %v, want [//manual:runtime]", modelsImports.IncludeDeps)
+	}
+
+	modelsTest := byName["models_test"]
+	if modelsTest == nil {
+		t.Fatalf("missing :models_test; have %v", keys(byName))
+	}
+	if modelsTest.kind != defaultTestKind {
+		t.Errorf(":models_test kind = %q, want %q", modelsTest.kind, defaultTestKind)
+	}
+	if !reflect.DeepEqual(modelsTest.srcs, []string{"models_test.py"}) {
+		t.Errorf(":models_test srcs = %v, want [models_test.py]", modelsTest.srcs)
+	}
+	testImports := importsByName["models_test"]
+	if !reflect.DeepEqual(testImports.TestImports, results["pkg/models_test.py"].Modules) {
+		t.Errorf(":models_test TestImports = %v, want %v", testImports.TestImports, results["pkg/models_test.py"].Modules)
+	}
+	if len(testImports.Imports) != 0 {
+		t.Errorf(":models_test Imports = %v, want none", testImports.Imports)
+	}
+
+	for _, unexpected := range []string{"pkg", "excluded", "empty", "data"} {
+		if byName[unexpected] != nil {
+			t.Errorf("unexpected generated rule %q", unexpected)
+		}
+	}
+}
+
+func TestGenerateHandRolledRules_MatchesMappedKinds(t *testing.T) {
+	cfg := newPyConfig()
+	results := map[string]FileImports{
+		"pkg/models.py":      {},
+		"pkg/models_test.py": {},
+	}
+	cases := []struct {
+		name     string
+		libKind  string
+		testKind string
+		kindMap  map[string]config.MappedKind
+	}{
+		{
+			name:     "direct mapping",
+			libKind:  "pplx_python_library",
+			testKind: "pplx_python_test",
+			kindMap: map[string]config.MappedKind{
+				defaultLibraryKind: {KindName: "pplx_python_library"},
+				defaultTestKind:    {KindName: "pplx_python_test"},
+			},
+		},
+		{
+			name:     "transitive mapping",
+			libKind:  "pplx_final_python_library",
+			testKind: "pplx_final_python_test",
+			kindMap: map[string]config.MappedKind{
+				defaultLibraryKind:    {KindName: "pplx_python_library"},
+				"pplx_python_library": {KindName: "pplx_final_python_library"},
+				defaultTestKind:       {KindName: "pplx_python_test"},
+				"pplx_python_test":    {KindName: "pplx_final_python_test"},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := mustLoadBuildFile(t, "pkg", fmt.Sprintf(`
+load("//tools:python_defs.bzl", "pplx_final_python_library", "pplx_final_python_test", "pplx_python_library", "pplx_python_test")
+
+%s(
+    name = "models",
+    srcs = ["models.py"],
+)
+
+%s(
+    name = "models_test",
+    srcs = ["models_test.py"],
+)
+`, tc.libKind, tc.testKind))
+			c := &config.Config{KindMap: tc.kindMap}
+
+			genRules, _ := generateHandRolledRules(cfg, c, "pkg", results, annotations{}, file, nil)
+
+			if len(genRules) != 2 {
+				t.Fatalf("want 2 hand-rolled rules, got %d", len(genRules))
+			}
+			byName := map[string]*ruleSnapshot{}
+			for _, r := range genRules {
+				byName[r.Name()] = snapshot(r)
+			}
+			if byName["models"] == nil || byName["models"].kind != defaultLibraryKind {
+				t.Errorf(":models = %+v, want generated %s rule", byName["models"], defaultLibraryKind)
+			}
+			if byName["models_test"] == nil || byName["models_test"].kind != defaultTestKind {
+				t.Errorf(":models_test = %+v, want generated %s rule", byName["models_test"], defaultTestKind)
+			}
+		})
+	}
+}
+
+func mustLoadBuildFile(t *testing.T, pkg, data string) *rule.File {
+	t.Helper()
+	file, err := rule.LoadData("BUILD.bazel", pkg, []byte(data))
+	if err != nil {
+		t.Fatalf("load BUILD data: %v", err)
+	}
+	return file
 }
 
 // ruleSnapshot captures the bits of a *rule.Rule we want to assert on. We

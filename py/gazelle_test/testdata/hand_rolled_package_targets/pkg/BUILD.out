@@ -1,0 +1,20 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "split",
+    srcs = ["split.py"],
+    deps = [
+        "//manual:kept",  # keep
+        "@pip//requests",
+    ],
+)
+
+py_library(
+    name = "pkg",
+    srcs = [
+        "helper.py",
+        "split.py",
+    ],
+    visibility = ["//visibility:public"],
+    deps = ["@pip//requests"],
+)
