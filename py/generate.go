@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 	"github.com/bmatcuk/doublestar/v4"
@@ -77,7 +78,7 @@ func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResu
 	case generationModeFile:
 		return generatePerFileRules(cfg, args.Rel, specs, results, annot)
 	default:
-		return generateAggregateRules(cfg, args.Rel, specs, results, annot)
+		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, annot, args.File)
 	}
 }
 
@@ -175,7 +176,7 @@ func (l *pyLang) parseSpecs(specs []FileSpec) (map[string]FileImports, []string)
 // is extracted into a dedicated `py_library` named `conftest` with
 // `testonly=True`, mirroring rules_python's gazelle plugin. Tests pick it up
 // transitively through the ancestor-conftest synthesis in resolve.go.
-func generateAggregateRules(cfg *pyConfig, rel string, specs []FileSpec, results map[string]FileImports, annot annotations) language.GenerateResult {
+func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, annot annotations, file *rule.File) language.GenerateResult {
 	libName, testName := resolveRuleNames(cfg, rel)
 
 	var libSrcs, testSrcs []string
@@ -261,10 +262,81 @@ func generateAggregateRules(cfg *pyConfig, rel string, specs []FileSpec, results
 		})
 	}
 
+	extraRules, extraImports := generateHandRolledRules(cfg, c, rel, results, annot, file, map[string]bool{
+		libName:            true,
+		testName:           true,
+		conftestTargetName: true,
+	})
+	genRules = append(genRules, extraRules...)
+	genImports = append(genImports, extraImports...)
+
 	return language.GenerateResult{
 		Gen:     genRules,
 		Imports: genImports,
 	}
+}
+
+func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, results map[string]FileImports, annot annotations, file *rule.File, managed map[string]bool) ([]*rule.Rule, []interface{}) {
+	if file == nil {
+		return nil, nil
+	}
+	libKinds := mappedKinds(c, cfg.libraryKind)
+	testKinds := mappedKinds(c, cfg.testKind)
+
+	var genRules []*rule.Rule
+	var genImports []interface{}
+	for _, er := range file.Rules {
+		if managed[er.Name()] {
+			continue
+		}
+		srcs := er.AttrStrings("srcs")
+		if len(srcs) == 0 {
+			continue
+		}
+		isLib := libKinds[er.Kind()]
+		isTest := testKinds[er.Kind()]
+		if !isLib && !isTest {
+			continue
+		}
+		imps, ok := importsForSrcs(rel, srcs, results)
+		if !ok {
+			continue
+		}
+		kind := cfg.libraryKind
+		data := ImportData{Imports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
+		if isTest {
+			kind = cfg.testKind
+			data = ImportData{TestImports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
+		}
+		r := rule.NewRule(kind, er.Name())
+		r.SetAttr("srcs", srcs)
+		genRules = append(genRules, r)
+		genImports = append(genImports, data)
+	}
+	return genRules, genImports
+}
+
+func mappedKinds(c *config.Config, kind string) map[string]bool {
+	kinds := map[string]bool{kind: true}
+	if c == nil {
+		return kinds
+	}
+	if mk, ok := c.KindMap[kind]; ok {
+		kinds[mk.KindName] = true
+	}
+	return kinds
+}
+
+func importsForSrcs(rel string, srcs []string, results map[string]FileImports) ([]ImportStatement, bool) {
+	var imps []ImportStatement
+	for _, src := range srcs {
+		r, ok := results[filepath.Join(rel, src)]
+		if !ok {
+			return nil, false
+		}
+		imps = append(imps, r.Modules...)
+	}
+	return imps, true
 }
 
 // generatePerFileRules emits one rule per source file: a library rule named
