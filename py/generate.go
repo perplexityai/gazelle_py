@@ -77,8 +77,10 @@ func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResu
 	switch cfg.generationMode {
 	case generationModeFile:
 		return generatePerFileRules(cfg, args.Rel, specs, results, annot)
+	case generationModeProject:
+		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, annot, args.File, false)
 	default:
-		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, annot, args.File)
+		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, annot, args.File, true)
 	}
 }
 
@@ -176,7 +178,7 @@ func (l *pyLang) parseSpecs(specs []FileSpec) (map[string]FileImports, []string)
 // is extracted into a dedicated `py_library` named `conftest` with
 // `testonly=True`, mirroring rules_python's gazelle plugin. Tests pick it up
 // transitively through the ancestor-conftest synthesis in resolve.go.
-func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, annot annotations, file *rule.File) language.GenerateResult {
+func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, annot annotations, file *rule.File, manageHandRolled bool) language.GenerateResult {
 	libName, testName := resolveRuleNames(cfg, rel)
 
 	var libSrcs, testSrcs []string
@@ -262,13 +264,15 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 		})
 	}
 
-	extraRules, extraImports := generateHandRolledRules(cfg, c, rel, results, annot, file, map[string]bool{
-		libName:            true,
-		testName:           true,
-		conftestTargetName: true,
-	})
-	genRules = append(genRules, extraRules...)
-	genImports = append(genImports, extraImports...)
+	if manageHandRolled {
+		extraRules, extraImports := generateHandRolledRules(cfg, c, rel, results, annot, file, map[string]bool{
+			libName:            true,
+			testName:           true,
+			conftestTargetName: true,
+		})
+		genRules = append(genRules, extraRules...)
+		genImports = append(genImports, extraImports...)
+	}
 
 	return language.GenerateResult{
 		Gen:     genRules,
@@ -321,8 +325,18 @@ func mappedKinds(c *config.Config, kind string) map[string]bool {
 	if c == nil {
 		return kinds
 	}
-	if mk, ok := c.KindMap[kind]; ok {
+	seen := map[string]bool{kind: true}
+	for {
+		mk, ok := c.KindMap[kind]
+		if !ok {
+			break
+		}
 		kinds[mk.KindName] = true
+		if seen[mk.KindName] || kind == mk.KindName {
+			break
+		}
+		seen[mk.KindName] = true
+		kind = mk.KindName
 	}
 	return kinds
 }

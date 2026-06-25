@@ -1,6 +1,7 @@
 package py
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -318,7 +319,7 @@ func TestGenerateAggregateRules_SkipEmptyInitMixed(t *testing.T) {
 		"pkg/__init__.py": {IsEmpty: true},
 		"pkg/app.py":      {IsEmpty: false},
 	}
-	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil)
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule, got %d", len(res.Gen))
 	}
@@ -343,7 +344,7 @@ func TestGenerateAggregateRules_SkipEmptyInitProjectRollup(t *testing.T) {
 		"proj/__init__.py":     {IsEmpty: true},
 		"proj/sub/__init__.py": {IsEmpty: true},
 	}
-	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil)
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 0 {
 		t.Errorf("want no rules when every rolled-up src is an empty __init__.py, got %d", len(res.Gen))
 	}
@@ -357,7 +358,7 @@ func TestGenerateAggregateRules_SkipEmptyInitOnly(t *testing.T) {
 	cfg.skipEmptyInit = true
 	specs := []FileSpec{{RelPath: "pkg/__init__.py"}}
 	results := map[string]FileImports{"pkg/__init__.py": {IsEmpty: true}}
-	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil)
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 0 {
 		t.Errorf("want no rules, got %d", len(res.Gen))
 	}
@@ -375,7 +376,7 @@ func TestGenerateAggregateRules_SkipEmptyInitTestsOnly(t *testing.T) {
 	cfg.skipEmptyInit = true
 	specs := []FileSpec{{RelPath: "proj/tests/__init__.py"}}
 	results := map[string]FileImports{"proj/tests/__init__.py": {IsEmpty: true}}
-	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil)
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 0 {
 		t.Errorf("want no rules when only test src is empty tests/__init__.py, got %d", len(res.Gen))
 	}
@@ -395,7 +396,7 @@ func TestGenerateAggregateRules_SkipEmptyInitTestsAlongsideLib(t *testing.T) {
 		"proj/app.py":            {IsEmpty: false},
 		"proj/tests/__init__.py": {IsEmpty: true},
 	}
-	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil)
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule (library only — empty tests/__init__.py suppressed), got %d", len(res.Gen))
 	}
@@ -423,7 +424,7 @@ func TestGenerateAggregateRules_SkipEmptyInitRealTestKept(t *testing.T) {
 		"proj/tests/__init__.py": {IsEmpty: true},
 		"proj/tests/test_app.py": {IsEmpty: false},
 	}
-	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil)
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule (test, real src present), got %d", len(res.Gen))
 	}
@@ -459,7 +460,7 @@ func TestGenerateAggregateRules_SkipEmptyInitDirectiveOff(t *testing.T) {
 	cfg := newPyConfig() // skipEmptyInit defaults to false
 	specs := []FileSpec{{RelPath: "pkg/__init__.py"}}
 	results := map[string]FileImports{"pkg/__init__.py": {IsEmpty: true}}
-	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil)
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule when directive off, got %d", len(res.Gen))
 	}
@@ -498,7 +499,7 @@ func TestGenerateAggregateRules_ConftestExtracted(t *testing.T) {
 		{RelPath: "pkg/conftest.py"},
 		{RelPath: "pkg/app_test.py"},
 	}
-	res := generateAggregateRules(cfg, nil, "pkg", specs, nil, annotations{}, nil)
+	res := generateAggregateRules(cfg, nil, "pkg", specs, nil, annotations{}, nil, false)
 	if len(res.Gen) != 3 {
 		t.Fatalf("want 3 rules (lib, conftest, test), got %d", len(res.Gen))
 	}
@@ -542,7 +543,7 @@ func TestGenerateAggregateRules_ConftestExtracted(t *testing.T) {
 func TestGenerateAggregateRules_ConftestOnly(t *testing.T) {
 	cfg := newPyConfig()
 	specs := []FileSpec{{RelPath: "tests/conftest.py"}}
-	res := generateAggregateRules(cfg, nil, "tests", specs, nil, annotations{}, nil)
+	res := generateAggregateRules(cfg, nil, "tests", specs, nil, annotations{}, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want exactly 1 rule, got %d", len(res.Gen))
 	}
@@ -565,7 +566,7 @@ func TestGenerateAggregateRules_NestedConftestStays(t *testing.T) {
 		{RelPath: "pkg/app.py"},
 		{RelPath: "pkg/sub/conftest.py"},
 	}
-	res := generateAggregateRules(cfg, nil, "pkg", specs, nil, annotations{}, nil)
+	res := generateAggregateRules(cfg, nil, "pkg", specs, nil, annotations{}, nil, false)
 	for _, r := range res.Gen {
 		if r.Name() == "conftest" {
 			t.Errorf("nested conftest must not produce a :conftest rule at this level")
@@ -603,6 +604,28 @@ func TestGeneratePerFileRules_ConftestTestonly(t *testing.T) {
 	}
 	if !conf.testonly {
 		t.Errorf("file-mode :conftest must set testonly=True")
+	}
+}
+
+func TestGenerateAggregateRules_HandRolledTargetsPackageModeOnly(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "models",
+    srcs = ["models.py"],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/models.py"}}
+	results := map[string]FileImports{"pkg/models.py": {}}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, file, false)
+
+	for _, r := range res.Gen {
+		if r.Name() == "models" {
+			t.Fatalf("hand-rolled :models target must not be managed outside package generation mode")
+		}
 	}
 }
 
@@ -731,42 +754,71 @@ filegroup(
 
 func TestGenerateHandRolledRules_MatchesMappedKinds(t *testing.T) {
 	cfg := newPyConfig()
-	file := mustLoadBuildFile(t, "pkg", `
-load("//tools:python_defs.bzl", "pplx_python_library", "pplx_python_test")
-
-pplx_python_library(
-    name = "models",
-    srcs = ["models.py"],
-)
-
-pplx_python_test(
-    name = "models_test",
-    srcs = ["models_test.py"],
-)
-`)
-	c := &config.Config{KindMap: map[string]config.MappedKind{
-		defaultLibraryKind: {KindName: "pplx_python_library"},
-		defaultTestKind:    {KindName: "pplx_python_test"},
-	}}
 	results := map[string]FileImports{
 		"pkg/models.py":      {},
 		"pkg/models_test.py": {},
 	}
+	cases := []struct {
+		name     string
+		libKind  string
+		testKind string
+		kindMap  map[string]config.MappedKind
+	}{
+		{
+			name:     "direct mapping",
+			libKind:  "pplx_python_library",
+			testKind: "pplx_python_test",
+			kindMap: map[string]config.MappedKind{
+				defaultLibraryKind: {KindName: "pplx_python_library"},
+				defaultTestKind:    {KindName: "pplx_python_test"},
+			},
+		},
+		{
+			name:     "transitive mapping",
+			libKind:  "pplx_final_python_library",
+			testKind: "pplx_final_python_test",
+			kindMap: map[string]config.MappedKind{
+				defaultLibraryKind:    {KindName: "pplx_python_library"},
+				"pplx_python_library": {KindName: "pplx_final_python_library"},
+				defaultTestKind:       {KindName: "pplx_python_test"},
+				"pplx_python_test":    {KindName: "pplx_final_python_test"},
+			},
+		},
+	}
 
-	genRules, _ := generateHandRolledRules(cfg, c, "pkg", results, annotations{}, file, nil)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := mustLoadBuildFile(t, "pkg", fmt.Sprintf(`
+load("//tools:python_defs.bzl", "pplx_final_python_library", "pplx_final_python_test", "pplx_python_library", "pplx_python_test")
 
-	if len(genRules) != 2 {
-		t.Fatalf("want 2 hand-rolled rules, got %d", len(genRules))
-	}
-	byName := map[string]*ruleSnapshot{}
-	for _, r := range genRules {
-		byName[r.Name()] = snapshot(r)
-	}
-	if byName["models"] == nil || byName["models"].kind != defaultLibraryKind {
-		t.Errorf(":models = %+v, want generated %s rule", byName["models"], defaultLibraryKind)
-	}
-	if byName["models_test"] == nil || byName["models_test"].kind != defaultTestKind {
-		t.Errorf(":models_test = %+v, want generated %s rule", byName["models_test"], defaultTestKind)
+%s(
+    name = "models",
+    srcs = ["models.py"],
+)
+
+%s(
+    name = "models_test",
+    srcs = ["models_test.py"],
+)
+`, tc.libKind, tc.testKind))
+			c := &config.Config{KindMap: tc.kindMap}
+
+			genRules, _ := generateHandRolledRules(cfg, c, "pkg", results, annotations{}, file, nil)
+
+			if len(genRules) != 2 {
+				t.Fatalf("want 2 hand-rolled rules, got %d", len(genRules))
+			}
+			byName := map[string]*ruleSnapshot{}
+			for _, r := range genRules {
+				byName[r.Name()] = snapshot(r)
+			}
+			if byName["models"] == nil || byName["models"].kind != defaultLibraryKind {
+				t.Errorf(":models = %+v, want generated %s rule", byName["models"], defaultLibraryKind)
+			}
+			if byName["models_test"] == nil || byName["models_test"].kind != defaultTestKind {
+				t.Errorf(":models_test = %+v, want generated %s rule", byName["models_test"], defaultTestKind)
+			}
+		})
 	}
 }
 

@@ -1,0 +1,19 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+# gazelle:python_generation_mode project
+
+py_library(
+    name = "models",
+    srcs = ["models.py"],
+    deps = ["//manual:stays"],
+)
+
+py_library(
+    name = "pkg",
+    srcs = [
+        "main.py",
+        "models.py",
+    ],
+    visibility = ["//visibility:public"],
+    deps = ["@pip//requests"],
+)
