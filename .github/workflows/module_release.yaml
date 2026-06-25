@@ -5,16 +5,9 @@ name: module-release
 #
 # Tag scheme: `vX.Y.Z`.
 #
-# The `release` job runs `bazel test //...`, calls
-# `.github/workflows/release_prep.sh` to generate the source tarball + release
-# notes, produces sigstore build provenance for each archive, and creates the
-# GitHub release with the files, notes, and `.intoto.jsonl` attestations
-# attached. publish-to-bcr then reads those attestations as part of the BCR
-# submission.
-#
-# The reusable workflows are kept repo-local because org policy requires
-# transitive actions to be pinned by SHA. The release build also needs a 16-core
-# Ubuntu 24 runner because it cross-compiles as part of `bazel test //...`.
+# The release uses bazel-contrib's reusable workflows, pinned by commit SHA.
+# BCR validates their builder IDs in the generated attestations, so local
+# vendored copies would fail the registry presubmit.
 #
 # Prerequisites for the BCR submission to succeed:
 #   1. A fork of github.com/bazelbuild/bazel-central-registry under the org
@@ -43,7 +36,7 @@ permissions:
 
 jobs:
   release:
-    uses: ./.github/workflows/release_ruleset_pinned.yaml
+    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@af28703814cf26522cf5e44d219efece91293123 # v7.4.0
     with:
       release_files: gazelle_py-*.tar.gz
       prerelease: false
@@ -51,7 +44,7 @@ jobs:
 
   publish-to-bcr:
     needs: release
-    uses: ./.github/workflows/publish_to_bcr_pinned.yaml
+    uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@0a23c53c2baffdaf2ce8dd23c2c0e45eb3b79093 # v1.2.0
     with:
       tag_name: ${{ inputs.tag || github.ref_name }}
       registry_fork: perplexityai/bazel-central-registry
