@@ -333,6 +333,9 @@ func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs 
 		if !ok {
 			continue
 		}
+		if er.Attr("srcs") == nil {
+			srcs = excludeExplicitSiblingSources(cfg, c, er, file, srcs)
+		}
 		imps, ok := importsForSrcs(rel, srcs, results)
 		if !ok {
 			continue

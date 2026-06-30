@@ -1,6 +1,7 @@
 package py
 
 import (
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -49,6 +50,9 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 	if !ok {
 		return nil
 	}
+	if r.Attr("srcs") == nil {
+		srcs = excludeExplicitSiblingSources(cfg, c, r, f, srcs)
+	}
 
 	seen := map[string]bool{}
 	var specs []resolve.ImportSpec
@@ -64,4 +68,46 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 		return specs[i].Imp < specs[j].Imp
 	})
 	return specs
+}
+
+func excludeExplicitSiblingSources(cfg *pyConfig, c *config.Config, r *rule.Rule, f *rule.File, srcs []string) []string {
+	if f == nil || len(srcs) == 0 {
+		return srcs
+	}
+
+	explicit := explicitSiblingPythonSources(cfg, c, r, f)
+	if len(explicit) == 0 {
+		return srcs
+	}
+
+	out := make([]string, 0, len(srcs))
+	for _, src := range srcs {
+		if explicit[filepath.ToSlash(src)] {
+			continue
+		}
+		out = append(out, src)
+	}
+	return out
+}
+
+func explicitSiblingPythonSources(cfg *pyConfig, c *config.Config, r *rule.Rule, f *rule.File) map[string]bool {
+	libKinds := mappedKinds(c, cfg.libraryKind)
+	testKinds := mappedKinds(c, cfg.testKind)
+	explicit := map[string]bool{}
+
+	for _, sibling := range f.Rules {
+		if sibling.Name() == r.Name() && sibling.Kind() == r.Kind() {
+			continue
+		}
+		if !libKinds[sibling.Kind()] && !testKinds[sibling.Kind()] {
+			continue
+		}
+		if sibling.Attr("srcs") == nil {
+			continue
+		}
+		for _, src := range filterPythonSources(sibling.AttrStrings("srcs"), cfg) {
+			explicit[filepath.ToSlash(src)] = true
+		}
+	}
+	return explicit
 }

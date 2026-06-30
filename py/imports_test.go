@@ -99,6 +99,41 @@ func TestImports_FilePatternCatchAllRegistersConcreteModules(t *testing.T) {
 	}
 }
 
+func TestImports_FilePatternDoesNotProvideExplicitSiblingSrcs(t *testing.T) {
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "pkg/sub")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{"__init__.py", "worker.py"} {
+		if err := os.WriteFile(filepath.Join(pkgDir, file), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	l := &pyLang{}
+	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: newPyConfig()}}
+	f := rule.EmptyFile("pkg/sub/BUILD.bazel", "pkg/sub")
+
+	catchAll := rule.NewRule(defaultLibraryKind, "catch_all")
+	catchAll.SetAttr("file_patterns", []string{"**/*.py"})
+	explicitInit := rule.NewRule(defaultLibraryKind, "sub")
+	explicitInit.SetAttr("srcs", []string{"__init__.py"})
+	f.Rules = []*rule.Rule{catchAll, explicitInit}
+
+	gotCatchAll := importPaths(l.Imports(c, catchAll, f))
+	wantCatchAll := []string{"pkg.sub.worker"}
+	if !reflect.DeepEqual(gotCatchAll, wantCatchAll) {
+		t.Errorf("catch-all Imports() = %v, want %v", gotCatchAll, wantCatchAll)
+	}
+
+	gotExplicit := importPaths(l.Imports(c, explicitInit, f))
+	wantExplicit := []string{"pkg.sub"}
+	if !reflect.DeepEqual(gotExplicit, wantExplicit) {
+		t.Errorf("explicit Imports() = %v, want %v", gotExplicit, wantExplicit)
+	}
+}
+
 // TestImports_ConftestNarrowSpec is the load-bearing assertion for the
 // dedicated `:conftest` rule: it must register ONLY the conftest module
 // (`pkg.conftest`), never the package-wide `pkg` / `pkg.*` specs that the
