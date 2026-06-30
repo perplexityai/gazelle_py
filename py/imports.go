@@ -28,7 +28,7 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 		cfg = newPyConfig()
 	}
 
-	if r.Kind() != cfg.libraryKind {
+	if !mappedKinds(c, cfg.libraryKind)[r.Kind()] {
 		return nil
 	}
 

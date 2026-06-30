@@ -28,6 +28,29 @@ func TestImports_LibrarySpecs(t *testing.T) {
 	}
 }
 
+func TestImports_MappedLibraryKind(t *testing.T) {
+	l := &pyLang{}
+	c := &config.Config{
+		Exts: map[string]interface{}{languageName: newPyConfig()},
+		KindMap: map[string]config.MappedKind{
+			defaultLibraryKind: {KindName: "pplx_python_library"},
+		},
+	}
+	f := rule.EmptyFile("pplx/python/apps/asi/tests/BUILD.bazel", "pplx/python/apps/asi/tests")
+
+	r := rule.NewRule("pplx_python_library", "helpers")
+	r.SetAttr("file_patterns", []string{"helpers.py"})
+
+	got := importPaths(l.Imports(c, r, f))
+	want := []string{
+		"pplx.python.apps.asi.tests",
+		"pplx.python.apps.asi.tests.*",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("mapped library Imports() = %v, want %v", got, want)
+	}
+}
+
 // TestImports_ConftestNarrowSpec is the load-bearing assertion for the
 // dedicated `:conftest` rule: it must register ONLY the conftest module
 // (`pkg.conftest`), never the package-wide `pkg` / `pkg.*` specs that the
