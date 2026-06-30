@@ -25,12 +25,12 @@ func TestNormalizeDist_SnakeCase(t *testing.T) {
 
 func TestNormalizeDist_Pep503(t *testing.T) {
 	cases := map[string]string{
-		"requests":         "requests",
-		"NumPy":            "numpy",
-		"cv2":              "opencv-python",
-		"sklearn":          "scikit-learn",
-		"dateutil":         "python-dateutil",
-		"Some.Weird_Name":  "some-weird-name",
+		"requests":           "requests",
+		"NumPy":              "numpy",
+		"cv2":                "opencv-python",
+		"sklearn":            "scikit-learn",
+		"dateutil":           "python-dateutil",
+		"Some.Weird_Name":    "some-weird-name",
 		"Multi___Underscore": "multi-underscore",
 	}
 	for in, want := range cases {
@@ -150,6 +150,36 @@ func TestDeduplicateAndSort(t *testing.T) {
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("deduplicateAndSort(%v) = %v, want %v", c.in, got, c.want)
 		}
+	}
+}
+
+func TestModuleCandidates_FromImportStopsAtFromModule(t *testing.T) {
+	got := moduleCandidates(
+		"pplx.common.core.pro_search.research_answer.handler.ResearchAnswerStreamingHandler",
+		"pplx.common.core.pro_search.research_answer.handler",
+	)
+	want := []string{
+		"pplx.common.core.pro_search.research_answer.handler.ResearchAnswerStreamingHandler",
+		"pplx.common.core.pro_search.research_answer.handler",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("moduleCandidates() = %v, want %v", got, want)
+	}
+}
+
+func TestModuleCandidates_FromPackageImportStopsAtPackage(t *testing.T) {
+	got := moduleCandidates("pkg.submodule", "pkg")
+	want := []string{"pkg.submodule", "pkg"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("moduleCandidates() = %v, want %v", got, want)
+	}
+}
+
+func TestModuleCandidates_PlainImportWalksParents(t *testing.T) {
+	got := moduleCandidates("pkg.sub.module", "")
+	want := []string{"pkg.sub.module", "pkg.sub", "pkg"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("moduleCandidates() = %v, want %v", got, want)
 	}
 }
 
