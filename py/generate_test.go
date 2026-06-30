@@ -629,6 +629,46 @@ py_library(
 	}
 }
 
+func TestGenerateAggregateRules_ExplicitManagedSrcBeatsBroadHandRolledPattern(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg/sub", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "catch_all",
+    file_patterns = ["**/*.py"],
+)
+
+py_library(
+    name = "sub",
+    srcs = ["__init__.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/sub/__init__.py"},
+		{RelPath: "pkg/sub/worker.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/sub/__init__.py": {},
+		"pkg/sub/worker.py":   {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg/sub", specs, results, annotations{}, file, true)
+
+	byName := map[string]*ruleSnapshot{}
+	for _, r := range res.Gen {
+		byName[r.Name()] = snapshot(r)
+	}
+
+	lib := byName["sub"]
+	if lib == nil {
+		t.Fatalf("missing generated :sub rule; have %v", keys(byName))
+	}
+	if !reflect.DeepEqual(lib.srcs, []string{"__init__.py"}) {
+		t.Errorf(":sub srcs = %v, want [__init__.py]", lib.srcs)
+	}
+}
+
 func TestGenerateHandRolledRules_EmitsParsedExtraTargets(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `

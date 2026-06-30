@@ -304,6 +304,9 @@ func handOwnedPythonSources(cfg *pyConfig, c *config.Config, rel string, specs [
 		if !ok {
 			continue
 		}
+		if er.Attr("srcs") == nil {
+			srcs = excludeExplicitSiblingSources(cfg, c, er, file, srcs)
+		}
 		for _, src := range srcs {
 			owned[filepath.ToSlash(src)] = true
 		}
