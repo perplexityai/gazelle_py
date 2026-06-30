@@ -20,22 +20,20 @@ func rulePythonSourceFilesFromSpecs(cfg *pyConfig, r *rule.Rule, specs []FileSpe
 		return nil, false
 	}
 
-	ignorePatterns := r.AttrStrings("ignore_patterns")
-	seen := map[string]bool{}
-	var srcs []string
-	for _, s := range specs {
-		src := filepath.ToSlash(pkgRelativePath(s.RelPath, rel))
-		if !isPythonFile(src, cfg) || !matchesAnyPattern(patterns, src) || matchesAnyPattern(ignorePatterns, src) {
-			continue
+	return rulePythonSourceFilesFromPatterns(cfg, patterns, r.AttrStrings("ignore_patterns"), func(pattern string) ([]string, error) {
+		var matches []string
+		for _, s := range specs {
+			src := filepath.ToSlash(pkgRelativePath(s.RelPath, rel))
+			ok, err := doublestar.Match(filepath.ToSlash(pattern), src)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				matches = append(matches, src)
+			}
 		}
-		if seen[src] {
-			continue
-		}
-		seen[src] = true
-		srcs = append(srcs, src)
-	}
-	sort.Strings(srcs)
-	return srcs, true
+		return matches, nil
+	}), true
 }
 
 func rulePythonSourceFilesFromDisk(cfg *pyConfig, r *rule.Rule, repoRoot string, pkg string) ([]string, bool) {
@@ -49,11 +47,21 @@ func rulePythonSourceFilesFromDisk(cfg *pyConfig, r *rule.Rule, repoRoot string,
 	}
 
 	pkgDir := filepath.Join(repoRoot, pkg)
-	ignorePatterns := r.AttrStrings("ignore_patterns")
+	return rulePythonSourceFilesFromPatterns(cfg, patterns, r.AttrStrings("ignore_patterns"), func(pattern string) ([]string, error) {
+		return doublestar.Glob(os.DirFS(pkgDir), filepath.ToSlash(pattern))
+	}), true
+}
+
+func rulePythonSourceFilesFromPatterns(
+	cfg *pyConfig,
+	patterns []string,
+	ignorePatterns []string,
+	filesForPattern func(pattern string) ([]string, error),
+) []string {
 	seen := map[string]bool{}
 	var srcs []string
 	for _, pattern := range patterns {
-		matches, err := doublestar.Glob(os.DirFS(pkgDir), filepath.ToSlash(pattern))
+		matches, err := filesForPattern(pattern)
 		if err != nil {
 			continue
 		}
@@ -70,7 +78,7 @@ func rulePythonSourceFilesFromDisk(cfg *pyConfig, r *rule.Rule, repoRoot string,
 		}
 	}
 	sort.Strings(srcs)
-	return srcs, true
+	return srcs
 }
 
 func filterPythonSources(srcs []string, cfg *pyConfig) []string {

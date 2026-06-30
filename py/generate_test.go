@@ -649,15 +649,25 @@ py_library(
 		{RelPath: "pkg/sub/worker.py"},
 	}
 	results := map[string]FileImports{
-		"pkg/sub/__init__.py": {},
-		"pkg/sub/worker.py":   {},
+		"pkg/sub/__init__.py": {
+			Modules: []ImportStatement{{ImportPath: "explicit.owner.only", SourceFile: "pkg/sub/__init__.py"}},
+		},
+		"pkg/sub/worker.py": {
+			Modules: []ImportStatement{{ImportPath: "catch.all.owner", SourceFile: "pkg/sub/worker.py"}},
+		},
 	}
 
 	res := generateAggregateRules(cfg, nil, "pkg/sub", specs, results, annotations{}, file, true)
 
 	byName := map[string]*ruleSnapshot{}
-	for _, r := range res.Gen {
+	importsByName := map[string]ImportData{}
+	for i, r := range res.Gen {
 		byName[r.Name()] = snapshot(r)
+		data, ok := res.Imports[i].(ImportData)
+		if !ok {
+			t.Fatalf("imports[%d] has type %T, want ImportData", i, res.Imports[i])
+		}
+		importsByName[r.Name()] = data
 	}
 
 	lib := byName["sub"]
@@ -666,6 +676,12 @@ py_library(
 	}
 	if !reflect.DeepEqual(lib.srcs, []string{"__init__.py"}) {
 		t.Errorf(":sub srcs = %v, want [__init__.py]", lib.srcs)
+	}
+	if !reflect.DeepEqual(importsByName["sub"].Imports, results["pkg/sub/__init__.py"].Modules) {
+		t.Errorf(":sub imports = %v, want %v", importsByName["sub"].Imports, results["pkg/sub/__init__.py"].Modules)
+	}
+	if !reflect.DeepEqual(importsByName["catch_all"].Imports, results["pkg/sub/worker.py"].Modules) {
+		t.Errorf(":catch_all imports = %v, want %v", importsByName["catch_all"].Imports, results["pkg/sub/worker.py"].Modules)
 	}
 }
 
