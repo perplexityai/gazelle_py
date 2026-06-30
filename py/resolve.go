@@ -165,10 +165,7 @@ func (l *pyLang) resolveOne(
 	manifest *manifestData,
 	pipRepo string,
 ) string {
-	parts := strings.Split(moduleName, ".")
-	for i := len(parts); i > 0; i-- {
-		try := strings.Join(parts[:i], ".")
-
+	for _, try := range moduleCandidates(moduleName, fromPart) {
 		// 1. gazelle:resolve directive — explicit user override.
 		spec := resolve.ImportSpec{Lang: languageName, Imp: try}
 		if dep, ok := resolve.FindRuleWithOverride(c, spec, languageName); ok {
@@ -258,6 +255,26 @@ func (l *pyLang) resolveOne(
 		return ""
 	}
 	return pipLabel(cfg, dist)
+}
+
+func moduleCandidates(moduleName string, fromPart string) []string {
+	if moduleName == "" {
+		return nil
+	}
+
+	minParts := 1
+	if fromPart != "" && !strings.HasPrefix(fromPart, ".") {
+		if moduleName == fromPart || strings.HasPrefix(moduleName, fromPart+".") {
+			minParts = len(strings.Split(fromPart, "."))
+		}
+	}
+
+	parts := strings.Split(moduleName, ".")
+	candidates := make([]string, 0, len(parts)-minParts+1)
+	for i := len(parts); i >= minParts; i-- {
+		candidates = append(candidates, strings.Join(parts[:i], "."))
+	}
+	return candidates
 }
 
 func setOrDelete(r *rule.Rule, attr string, values []string) {

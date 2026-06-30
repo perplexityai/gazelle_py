@@ -1,0 +1,13 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+py_library(
+    name = "openapi_lib",
+    file_patterns = ["**/*.py"],
+    ignore_patterns = ["**/*_test.py"],
+)
+
+py_test(
+    name = "openapi_test",
+    srcs = ["main_test.py"],
+    deps = [":openapi_lib"],
+)

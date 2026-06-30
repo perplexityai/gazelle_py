@@ -1,0 +1,7 @@
+# gazelle:ignore
+load("//tools/rules:defs.bzl", "pplx_python_library")
+
+pplx_python_library(
+    name = "helpers",
+    file_patterns = ["**/*.py"],
+)

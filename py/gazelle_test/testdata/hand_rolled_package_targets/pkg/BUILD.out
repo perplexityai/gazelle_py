@@ -11,10 +11,6 @@ py_library(
 
 py_library(
     name = "pkg",
-    srcs = [
-        "helper.py",
-        "split.py",
-    ],
+    srcs = ["helper.py"],
     visibility = ["//visibility:public"],
-    deps = ["@pip//requests"],
 )

@@ -1,0 +1,6 @@
+load("//tools/rules:defs.bzl", "pplx_python_library")
+
+pplx_python_library(
+    name = "lib",
+    srcs = ["__init__.py"],
+)

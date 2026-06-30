@@ -10,10 +10,6 @@ py_library(
 
 py_library(
     name = "pkg",
-    srcs = [
-        "main.py",
-        "models.py",
-    ],
+    srcs = ["main.py"],
     visibility = ["//visibility:public"],
-    deps = ["@pip//requests"],
 )

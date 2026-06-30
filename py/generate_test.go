@@ -629,6 +629,62 @@ py_library(
 	}
 }
 
+func TestGenerateAggregateRules_ExplicitManagedSrcBeatsBroadHandRolledPattern(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg/sub", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "catch_all",
+    file_patterns = ["**/*.py"],
+)
+
+py_library(
+    name = "sub",
+    srcs = ["__init__.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/sub/__init__.py"},
+		{RelPath: "pkg/sub/worker.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/sub/__init__.py": {
+			Modules: []ImportStatement{{ImportPath: "explicit.owner.only", SourceFile: "pkg/sub/__init__.py"}},
+		},
+		"pkg/sub/worker.py": {
+			Modules: []ImportStatement{{ImportPath: "catch.all.owner", SourceFile: "pkg/sub/worker.py"}},
+		},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg/sub", specs, results, annotations{}, file, true)
+
+	byName := map[string]*ruleSnapshot{}
+	importsByName := map[string]ImportData{}
+	for i, r := range res.Gen {
+		byName[r.Name()] = snapshot(r)
+		data, ok := res.Imports[i].(ImportData)
+		if !ok {
+			t.Fatalf("imports[%d] has type %T, want ImportData", i, res.Imports[i])
+		}
+		importsByName[r.Name()] = data
+	}
+
+	lib := byName["sub"]
+	if lib == nil {
+		t.Fatalf("missing generated :sub rule; have %v", keys(byName))
+	}
+	if !reflect.DeepEqual(lib.srcs, []string{"__init__.py"}) {
+		t.Errorf(":sub srcs = %v, want [__init__.py]", lib.srcs)
+	}
+	if !reflect.DeepEqual(importsByName["sub"].Imports, results["pkg/sub/__init__.py"].Modules) {
+		t.Errorf(":sub imports = %v, want %v", importsByName["sub"].Imports, results["pkg/sub/__init__.py"].Modules)
+	}
+	if !reflect.DeepEqual(importsByName["catch_all"].Imports, results["pkg/sub/worker.py"].Modules) {
+		t.Errorf(":catch_all imports = %v, want %v", importsByName["catch_all"].Imports, results["pkg/sub/worker.py"].Modules)
+	}
+}
+
 func TestGenerateHandRolledRules_EmitsParsedExtraTargets(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `
@@ -679,7 +735,7 @@ filegroup(
 		includeDep: []string{"//manual:runtime"},
 	}
 
-	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg", results, annot, file, map[string]bool{
+	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg", nil, results, annot, file, map[string]bool{
 		"pkg":      true,
 		"pkg_test": true,
 		"conftest": true,
@@ -752,6 +808,58 @@ filegroup(
 	}
 }
 
+func TestGenerateHandRolledRules_FilePatternExcludesExplicitSiblingSrcs(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg/sub", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "catch_all",
+    file_patterns = ["**/*.py"],
+)
+
+py_library(
+    name = "sub",
+    srcs = ["__init__.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/sub/__init__.py"},
+		{RelPath: "pkg/sub/worker.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/sub/__init__.py": {
+			Modules: []ImportStatement{{ImportPath: "explicit.owner.only", SourceFile: "pkg/sub/__init__.py"}},
+		},
+		"pkg/sub/worker.py": {
+			Modules: []ImportStatement{{ImportPath: "catch.all.owner", SourceFile: "pkg/sub/worker.py"}},
+		},
+	}
+
+	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg/sub", specs, results, annotations{}, file, nil)
+
+	importsByName := map[string]ImportData{}
+	for i, r := range genRules {
+		data, ok := genImports[i].(ImportData)
+		if !ok {
+			t.Fatalf("imports[%d] has type %T, want ImportData", i, genImports[i])
+		}
+		importsByName[r.Name()] = data
+	}
+
+	catchAllImports := importsByName["catch_all"].Imports
+	wantCatchAllImports := results["pkg/sub/worker.py"].Modules
+	if !reflect.DeepEqual(catchAllImports, wantCatchAllImports) {
+		t.Errorf(":catch_all imports = %v, want %v", catchAllImports, wantCatchAllImports)
+	}
+
+	explicitImports := importsByName["sub"].Imports
+	wantExplicitImports := results["pkg/sub/__init__.py"].Modules
+	if !reflect.DeepEqual(explicitImports, wantExplicitImports) {
+		t.Errorf(":sub imports = %v, want %v", explicitImports, wantExplicitImports)
+	}
+}
+
 func TestGenerateHandRolledRules_MatchesMappedKinds(t *testing.T) {
 	cfg := newPyConfig()
 	results := map[string]FileImports{
@@ -803,7 +911,7 @@ load("//tools:python_defs.bzl", "pplx_final_python_library", "pplx_final_python_
 `, tc.libKind, tc.testKind))
 			c := &config.Config{KindMap: tc.kindMap}
 
-			genRules, _ := generateHandRolledRules(cfg, c, "pkg", results, annotations{}, file, nil)
+			genRules, _ := generateHandRolledRules(cfg, c, "pkg", nil, results, annotations{}, file, nil)
 
 			if len(genRules) != 2 {
 				t.Fatalf("want 2 hand-rolled rules, got %d", len(genRules))

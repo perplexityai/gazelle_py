@@ -1,6 +1,8 @@
 package py
 
 import (
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -12,12 +14,11 @@ import (
 // import paths the rule provides — gazelle stores these in a reverse index
 // that Resolve() queries when picking deps.
 //
-// For a library at //packages/foo we register:
-//   - the dotted module path of the package directory ("packages.foo")
-//   - a wildcard ("packages.foo.*") so callers that import a not-yet-indexed
-//     submodule still resolve here
-//   - a per-srcs path for each .py file in the rule
-//     ("packages.foo.bar" for srcs/bar.py)
+// For a library at //packages/foo we register only concrete modules the rule
+// actually owns, for example:
+//   - "packages.foo" for srcs/__init__.py
+//   - "packages.foo.bar" for srcs/bar.py
+//   - "packages.foo.sub" for srcs/sub/__init__.py
 //
 // Test rules are not indexed: importing into a test target from outside is a
 // rare pattern and generating index specs for tests creates library→test
@@ -28,7 +29,7 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 		cfg = newPyConfig()
 	}
 
-	if r.Kind() != cfg.libraryKind {
+	if !mappedKinds(c, cfg.libraryKind)[r.Kind()] {
 		return nil
 	}
 
@@ -45,31 +46,68 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 		return nil
 	}
 
-	// The dedicated `:conftest` library exists solely to be picked up by the
-	// conftest-synthesis path in resolve.go. Indexing it under `pkg` / `pkg.*`
-	// would shadow the real library at the same package, so we register only
-	// the per-src `pkg.conftest` spec for it.
-	isConftestRule := r.Name() == conftestTargetName
-
-	var specs []resolve.ImportSpec
-	if !isConftestRule {
-		specs = append(specs,
-			resolve.ImportSpec{Lang: languageName, Imp: pkg},
-			resolve.ImportSpec{Lang: languageName, Imp: pkg + ".*"},
-		)
+	srcs, ok := rulePythonSourceFilesFromDisk(cfg, r, c.RepoRoot, f.Pkg)
+	if !ok {
+		return nil
+	}
+	if r.Attr("srcs") == nil {
+		srcs = excludeExplicitSiblingSources(cfg, c, r, f, srcs)
 	}
 
-	for _, s := range r.AttrStrings("srcs") {
-		if s == "" || s == "__init__.py" {
+	seen := map[string]bool{}
+	var specs []resolve.ImportSpec
+	for _, src := range srcs {
+		imp, ok := importPathForSource(pkg, src)
+		if !ok || seen[imp] {
 			continue
 		}
-		mod := strings.TrimSuffix(s, ".py")
-		mod = strings.ReplaceAll(mod, "/", ".")
-		specs = append(specs, resolve.ImportSpec{
-			Lang: languageName,
-			Imp:  pkg + "." + mod,
-		})
+		seen[imp] = true
+		specs = append(specs, resolve.ImportSpec{Lang: languageName, Imp: imp})
+	}
+	sort.Slice(specs, func(i, j int) bool {
+		return specs[i].Imp < specs[j].Imp
+	})
+	return specs
+}
+
+func excludeExplicitSiblingSources(cfg *pyConfig, c *config.Config, r *rule.Rule, f *rule.File, srcs []string) []string {
+	if f == nil || len(srcs) == 0 {
+		return srcs
 	}
 
-	return specs
+	explicit := explicitSiblingPythonSources(cfg, c, r, f)
+	if len(explicit) == 0 {
+		return srcs
+	}
+
+	out := make([]string, 0, len(srcs))
+	for _, src := range srcs {
+		if explicit[filepath.ToSlash(src)] {
+			continue
+		}
+		out = append(out, src)
+	}
+	return out
+}
+
+func explicitSiblingPythonSources(cfg *pyConfig, c *config.Config, r *rule.Rule, f *rule.File) map[string]bool {
+	libKinds := mappedKinds(c, cfg.libraryKind)
+	testKinds := mappedKinds(c, cfg.testKind)
+	explicit := map[string]bool{}
+
+	for _, sibling := range f.Rules {
+		if sibling.Name() == r.Name() && sibling.Kind() == r.Kind() {
+			continue
+		}
+		if !libKinds[sibling.Kind()] && !testKinds[sibling.Kind()] {
+			continue
+		}
+		if sibling.Attr("srcs") == nil {
+			continue
+		}
+		for _, src := range filterPythonSources(sibling.AttrStrings("srcs"), cfg) {
+			explicit[filepath.ToSlash(src)] = true
+		}
+	}
+	return explicit
 }
