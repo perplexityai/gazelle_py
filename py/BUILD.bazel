@@ -26,6 +26,7 @@ go_library(
         "manifest.go",
         "parser.go",
         "resolve.go",
+        "sources.go",
         "stdlib.go",
     ],
     cgo = True,

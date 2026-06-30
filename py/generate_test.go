@@ -679,7 +679,7 @@ filegroup(
 		includeDep: []string{"//manual:runtime"},
 	}
 
-	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg", results, annot, file, map[string]bool{
+	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg", nil, results, annot, file, map[string]bool{
 		"pkg":      true,
 		"pkg_test": true,
 		"conftest": true,
@@ -803,7 +803,7 @@ load("//tools:python_defs.bzl", "pplx_final_python_library", "pplx_final_python_
 `, tc.libKind, tc.testKind))
 			c := &config.Config{KindMap: tc.kindMap}
 
-			genRules, _ := generateHandRolledRules(cfg, c, "pkg", results, annotations{}, file, nil)
+			genRules, _ := generateHandRolledRules(cfg, c, "pkg", nil, results, annotations{}, file, nil)
 
 			if len(genRules) != 2 {
 				t.Fatalf("want 2 hand-rolled rules, got %d", len(genRules))

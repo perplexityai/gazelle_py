@@ -180,6 +180,12 @@ func (l *pyLang) parseSpecs(specs []FileSpec) (map[string]FileImports, []string)
 // transitively through the ancestor-conftest synthesis in resolve.go.
 func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, annot annotations, file *rule.File, manageHandRolled bool) language.GenerateResult {
 	libName, testName := resolveRuleNames(cfg, rel)
+	managed := map[string]bool{
+		libName:            true,
+		testName:           true,
+		conftestTargetName: true,
+	}
+	handOwned := handOwnedPythonSources(cfg, c, rel, specs, file, managed)
 
 	var libSrcs, testSrcs []string
 	var sourceImports, testImports, conftestImports []ImportStatement
@@ -190,6 +196,9 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 		// turns "apps/server/utils/x.py" into "utils/x.py" inside
 		// //apps/server's BUILD file.
 		srcName := pkgRelativePath(s.RelPath, rel)
+		if handOwned[filepath.ToSlash(srcName)] {
+			continue
+		}
 		if isConftestAtPackageRoot(srcName) {
 			hasConftest = true
 			if r, ok := results[s.RelPath]; ok {
@@ -265,11 +274,7 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	}
 
 	if manageHandRolled {
-		extraRules, extraImports := generateHandRolledRules(cfg, c, rel, results, annot, file, map[string]bool{
-			libName:            true,
-			testName:           true,
-			conftestTargetName: true,
-		})
+		extraRules, extraImports := generateHandRolledRules(cfg, c, rel, specs, results, annot, file, managed)
 		genRules = append(genRules, extraRules...)
 		genImports = append(genImports, extraImports...)
 	}
@@ -280,7 +285,33 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	}
 }
 
-func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, results map[string]FileImports, annot annotations, file *rule.File, managed map[string]bool) ([]*rule.Rule, []interface{}) {
+func handOwnedPythonSources(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, file *rule.File, managed map[string]bool) map[string]bool {
+	owned := map[string]bool{}
+	if file == nil {
+		return owned
+	}
+	libKinds := mappedKinds(c, cfg.libraryKind)
+	testKinds := mappedKinds(c, cfg.testKind)
+
+	for _, er := range file.Rules {
+		if managed[er.Name()] {
+			continue
+		}
+		if !libKinds[er.Kind()] && !testKinds[er.Kind()] {
+			continue
+		}
+		srcs, ok := rulePythonSourceFilesFromSpecs(cfg, er, specs, rel)
+		if !ok {
+			continue
+		}
+		for _, src := range srcs {
+			owned[filepath.ToSlash(src)] = true
+		}
+	}
+	return owned
+}
+
+func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, annot annotations, file *rule.File, managed map[string]bool) ([]*rule.Rule, []interface{}) {
 	if file == nil {
 		return nil, nil
 	}
@@ -293,13 +324,13 @@ func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, result
 		if managed[er.Name()] {
 			continue
 		}
-		srcs := er.AttrStrings("srcs")
-		if len(srcs) == 0 {
-			continue
-		}
 		isLib := libKinds[er.Kind()]
 		isTest := testKinds[er.Kind()]
 		if !isLib && !isTest {
+			continue
+		}
+		srcs, ok := rulePythonSourceFilesFromSpecs(cfg, er, specs, rel)
+		if !ok {
 			continue
 		}
 		imps, ok := importsForSrcs(rel, srcs, results)
@@ -313,7 +344,9 @@ func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, result
 			data = ImportData{TestImports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
 		}
 		r := rule.NewRule(kind, er.Name())
-		r.SetAttr("srcs", srcs)
+		if er.Attr("srcs") != nil {
+			r.SetAttr("srcs", er.AttrStrings("srcs"))
+		}
 		genRules = append(genRules, r)
 		genImports = append(genImports, data)
 	}
