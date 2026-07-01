@@ -685,6 +685,69 @@ py_library(
 	}
 }
 
+func TestGenerateAggregateRules_ExplicitSiblingFileTargetsOwnTheirSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg/sources", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "base",
+    srcs = ["base.py"],
+)
+
+py_library(
+    name = "huggingface",
+    srcs = ["huggingface.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/sources/__init__.py"},
+		{RelPath: "pkg/sources/base.py"},
+		{RelPath: "pkg/sources/huggingface.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/sources/__init__.py": {
+			Modules: []ImportStatement{{ImportPath: "pkg.sources.base", SourceFile: "pkg/sources/__init__.py"}},
+		},
+		"pkg/sources/base.py": {
+			Modules: []ImportStatement{{ImportPath: "pyspark", SourceFile: "pkg/sources/base.py"}},
+		},
+		"pkg/sources/huggingface.py": {
+			Modules: []ImportStatement{{ImportPath: "huggingface_hub", SourceFile: "pkg/sources/huggingface.py"}},
+		},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg/sources", specs, results, annotations{}, file, true)
+
+	byName := map[string]*ruleSnapshot{}
+	importsByName := map[string]ImportData{}
+	for i, r := range res.Gen {
+		byName[r.Name()] = snapshot(r)
+		data, ok := res.Imports[i].(ImportData)
+		if !ok {
+			t.Fatalf("imports[%d] has type %T, want ImportData", i, res.Imports[i])
+		}
+		importsByName[r.Name()] = data
+	}
+
+	sources := byName["sources"]
+	if sources == nil {
+		t.Fatalf("missing generated :sources rule; have %v", keys(byName))
+	}
+	if !reflect.DeepEqual(sources.srcs, []string{"__init__.py"}) {
+		t.Errorf(":sources srcs = %v, want [__init__.py]", sources.srcs)
+	}
+	if !reflect.DeepEqual(importsByName["sources"].Imports, results["pkg/sources/__init__.py"].Modules) {
+		t.Errorf(":sources imports = %v, want %v", importsByName["sources"].Imports, results["pkg/sources/__init__.py"].Modules)
+	}
+	if !reflect.DeepEqual(importsByName["base"].Imports, results["pkg/sources/base.py"].Modules) {
+		t.Errorf(":base imports = %v, want %v", importsByName["base"].Imports, results["pkg/sources/base.py"].Modules)
+	}
+	if !reflect.DeepEqual(importsByName["huggingface"].Imports, results["pkg/sources/huggingface.py"].Modules) {
+		t.Errorf(":huggingface imports = %v, want %v", importsByName["huggingface"].Imports, results["pkg/sources/huggingface.py"].Modules)
+	}
+}
+
 func TestGenerateHandRolledRules_EmitsParsedExtraTargets(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `
