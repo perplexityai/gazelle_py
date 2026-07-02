@@ -303,7 +303,7 @@ dependencies = ["fallback-only"]
 	}
 }
 
-func TestResolvePreservesUndeclaredExistingPipDep(t *testing.T) {
+func TestResolvePrunesUnusedExistingPipDep(t *testing.T) {
 	cfg := newPyConfig()
 	l := &pyLang{}
 	root := t.TempDir()
@@ -330,9 +330,8 @@ dependencies = ["requests"]
 		label.Label{Pkg: "data/ai_training/training/common", Name: "thread_safe_tokenizer"},
 	)
 
-	want := []string{"@pip//pplx_tokenizers"}
-	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("deps = %v, want preserved undeclared existing pip dep %v", got, want)
+	if got := r.AttrStrings("deps"); len(got) != 0 {
+		t.Fatalf("deps = %v, want stale existing pip dep pruned", got)
 	}
 }
 
@@ -366,6 +365,45 @@ func TestResolvePreservesDuplicateExistingPipRepos(t *testing.T) {
 	want := []string{"@pip//mcp", "@pip_asi_mcp//mcp"}
 	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("deps = %v, want duplicate pip repos preserved %v", got, want)
+	}
+}
+
+func TestResolveDoesNotPreserveUnusedDuplicateExistingPipRepos(t *testing.T) {
+	cfg := newPyConfig()
+	l := &pyLang{}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte(`
+[project]
+dependencies = ["requests"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &config.Config{
+		RepoRoot: root,
+		Exts:     map[string]interface{}{languageName: cfg},
+	}
+	(&resolve.Configurer{}).RegisterFlags(flag.NewFlagSet("test", flag.ContinueOnError), "", c)
+	ix := resolve.NewRuleIndex(nil)
+	r := rule.NewRule(cfg.libraryKind, "pkg")
+
+	l.Resolve(
+		c,
+		ix,
+		nil,
+		r,
+		ImportData{
+			Imports: []ImportStatement{{ImportPath: "requests"}},
+			ExistingDeps: []string{
+				"@pip//stale_package",
+				"@pip_alt//stale_package",
+			},
+		},
+		label.Label{Pkg: "pkg", Name: "pkg"},
+	)
+
+	want := []string{"@pip//requests"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("deps = %v, want only current import deps %v", got, want)
 	}
 }
 

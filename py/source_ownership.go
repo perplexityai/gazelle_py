@@ -287,6 +287,16 @@ func (o *packageSourceOwnership) explicitSiblingSources(r *rule.Rule) map[string
 		if sibling.Name() == r.Name() && sibling.Kind() == r.Kind() {
 			continue
 		}
+		if isResourceOwnerRule(sibling) {
+			srcs, ok := o.resourcePythonSourcesOwnedByRule(sibling)
+			if !ok {
+				continue
+			}
+			for _, src := range srcs {
+				explicit[filepath.ToSlash(src)] = true
+			}
+			continue
+		}
 		if ok, _ := o.isPythonRule(sibling); !ok {
 			continue
 		}

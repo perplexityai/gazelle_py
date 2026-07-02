@@ -134,6 +134,35 @@ func TestImports_FilePatternDoesNotProvideExplicitSiblingSrcs(t *testing.T) {
 	}
 }
 
+func TestImports_FilePatternDoesNotProvideResourceSrcs(t *testing.T) {
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{"app.py", "payload.py"} {
+		if err := os.WriteFile(filepath.Join(pkgDir, file), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	l := &pyLang{}
+	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: newPyConfig()}}
+	f := rule.EmptyFile("pkg/BUILD.bazel", "pkg")
+
+	lib := rule.NewRule(defaultLibraryKind, "pkg")
+	lib.SetAttr("file_patterns", []string{"**/*.py"})
+	resources := rule.NewRule("filegroup", "payload")
+	resources.SetAttr("srcs", []string{"payload.py"})
+	f.Rules = []*rule.Rule{lib, resources}
+
+	got := importPaths(l.Imports(c, lib, f))
+	want := []string{"pkg.app"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("file-pattern Imports() = %v, want %v", got, want)
+	}
+}
+
 // TestImports_ConftestNarrowSpec is the load-bearing assertion for the
 // dedicated `:conftest` rule: it must register ONLY the conftest module
 // (`pkg.conftest`), never the package-wide `pkg` / `pkg.*` specs that the

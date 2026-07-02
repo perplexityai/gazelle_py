@@ -1135,6 +1135,55 @@ filegroup(
 	}
 }
 
+func TestGenerateAggregateRules_FilePatternExcludesResourceSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "pkg",
+    file_patterns = ["**/*.py"],
+)
+
+filegroup(
+    name = "payload",
+    srcs = ["payload.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/app.py"},
+		{RelPath: "pkg/payload.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/app.py": {
+			Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/app.py"}},
+		},
+		"pkg/payload.py": {
+			Modules: []ImportStatement{{ImportPath: "payload_runtime", SourceFile: "pkg/payload.py"}},
+		},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %d, want only managed package library", len(res.Gen))
+	}
+	lib := res.Gen[0]
+	if lib.Name() != "pkg" {
+		t.Fatalf("generated rule = %s, want pkg", lib.Name())
+	}
+	if lib.Attr("srcs") != nil {
+		t.Fatalf("managed file_patterns rule generated srcs = %v, want attr omitted", lib.AttrStrings("srcs"))
+	}
+	data, ok := res.Imports[0].(ImportData)
+	if !ok {
+		t.Fatalf("imports[0] has type %T, want ImportData", res.Imports[0])
+	}
+	if !reflect.DeepEqual(data.Imports, results["pkg/app.py"].Modules) {
+		t.Errorf(":pkg imports = %v, want only app.py imports %v", data.Imports, results["pkg/app.py"].Modules)
+	}
+}
+
 func TestGenerateAggregateRules_ExplicitSiblingFileTargetsOwnTheirSources(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg/sources", `

@@ -178,6 +178,7 @@ func (l *pyLang) resolveImports(
 		if dep == "" {
 			continue
 		}
+		ctx.markResolvedDep(dep)
 		if seen[dep] {
 			continue
 		}
@@ -205,6 +206,7 @@ type resolverContext struct {
 	pipRepo         string
 	packageDeps     map[string]bool
 	existingPipDeps map[string][]string
+	usedPipDists    map[string]bool
 	memo            map[resolveLookupKey]string
 }
 
@@ -230,6 +232,7 @@ func newResolverContext(l *pyLang, c *config.Config, ix *resolve.RuleIndex, from
 		pipRepo:         effectivePipRepo(cfg, manifest),
 		packageDeps:     l.projectDeps(c.RepoRoot, cfg),
 		existingPipDeps: existingPipDepsByDist(deps),
+		usedPipDists:    map[string]bool{},
 		memo:            map[resolveLookupKey]string{},
 	}
 }
@@ -401,34 +404,51 @@ func (ctx *resolverContext) existingPipDepForDist(distName string) string {
 	if len(ctx.existingPipDeps) == 0 {
 		return ""
 	}
-	deps := ctx.existingPipDeps[normalizeDist(distName, snakeCaseNormalization)]
+	dist := normalizeDist(distName, snakeCaseNormalization)
+	deps := ctx.existingPipDeps[dist]
 	if len(deps) == 0 {
 		return ""
 	}
+	ctx.usedPipDists[dist] = true
 	return deps[0]
 }
 
 func existingPipDepsByDist(deps []string) map[string][]string {
 	out := map[string][]string{}
 	for _, dep := range deps {
-		if !strings.HasPrefix(dep, "@") {
+		dist, ok := pipDistFromLabel(dep)
+		if !ok {
 			continue
 		}
-		i := strings.Index(dep, "//")
-		if i < 0 {
-			continue
-		}
-		pkg := dep[i+2:]
-		if j := strings.Index(pkg, ":"); j >= 0 {
-			pkg = pkg[:j]
-		}
-		if pkg == "" || strings.Contains(pkg, "/") {
-			continue
-		}
-		dist := normalizeDist(pkg, snakeCaseNormalization)
 		out[dist] = append(out[dist], dep)
 	}
 	return out
+}
+
+func (ctx *resolverContext) markResolvedDep(dep string) {
+	dist, ok := pipDistFromLabel(dep)
+	if !ok {
+		return
+	}
+	ctx.usedPipDists[dist] = true
+}
+
+func pipDistFromLabel(dep string) (string, bool) {
+	if !strings.HasPrefix(dep, "@") {
+		return "", false
+	}
+	i := strings.Index(dep, "//")
+	if i < 0 {
+		return "", false
+	}
+	pkg := dep[i+2:]
+	if j := strings.Index(pkg, ":"); j >= 0 {
+		pkg = pkg[:j]
+	}
+	if pkg == "" || strings.Contains(pkg, "/") {
+		return "", false
+	}
+	return normalizeDist(pkg, snakeCaseNormalization), true
 }
 
 func (ctx *resolverContext) preservedExistingPipDeps() []string {
@@ -437,17 +457,12 @@ func (ctx *resolverContext) preservedExistingPipDeps() []string {
 	}
 	var out []string
 	for dist, deps := range ctx.existingPipDeps {
+		if !ctx.usedPipDists[dist] {
+			continue
+		}
 		if len(deps) > 1 {
 			out = append(out, deps...)
-			continue
 		}
-		if len(ctx.packageDeps) == 0 {
-			continue
-		}
-		if ctx.packageDeps[dist] {
-			continue
-		}
-		out = append(out, deps...)
 	}
 	return out
 }
