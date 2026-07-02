@@ -52,6 +52,9 @@ func TestApplyDirective_Strings(t *testing.T) {
 	if cfg.pipLinkPattern != "@my_pip//{pkg}" {
 		t.Errorf("pipLinkPattern = %q", cfg.pipLinkPattern)
 	}
+	if !cfg.pipLinkPatternExplicit {
+		t.Errorf("pipLinkPatternExplicit = false")
+	}
 }
 
 func TestApplyDirective_Visibility(t *testing.T) {
@@ -121,6 +124,7 @@ func TestApplyDirective_GenerationMode(t *testing.T) {
 		{"file", "anywhere", generationModeFile, ""},
 		{"project", "backend", generationModeProject, "backend"},
 		{"PROJECT", "tools/py", generationModeProject, "tools/py"},
+		{"off", "tools/raw", generationModeOff, ""},
 		// Switching back to package wipes the captured project root.
 		{"package", "anywhere", generationModePackage, ""},
 	}

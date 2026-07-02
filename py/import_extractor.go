@@ -64,11 +64,12 @@ func extractImports(specs []FileSpec) ([]FileImports, error) {
 				})
 			}
 			out = append(out, FileImports{
-				FileName: r.FileName,
-				Modules:  modules,
-				Comments: r.Comments,
-				HasMain:  r.HasMain,
-				IsEmpty:  r.IsEmpty,
+				FileName:    r.FileName,
+				Modules:     modules,
+				Comments:    r.Comments,
+				Annotations: parseAnnotations(r.Comments),
+				HasMain:     r.HasMain,
+				IsEmpty:     r.IsEmpty,
 			})
 		}
 		return out, nil

@@ -24,6 +24,8 @@
 package py
 
 import (
+	"sync"
+
 	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
@@ -40,17 +42,23 @@ const languageName = "py"
 
 // pyLang implements the language.Language interface from Gazelle.
 type pyLang struct {
-	// packageDeps is a set of all PyPI package distribution names declared
-	// at the repo root (e.g. via pyproject.toml [project] dependencies or
-	// requirements.txt). Used by the resolver to gate label emission for
-	// non-stdlib imports.
-	packageDeps map[string]bool
+	// packageDepsByRoot caches PyPI distribution names declared by each active
+	// Python project root. Used by the resolver to gate optimistic pip labels.
+	packageDepsMu     sync.Mutex
+	packageDepsByRoot map[string]map[string]bool
+
+	sourceFilesMu    sync.Mutex
+	sourceFilesCache map[sourceFilesCacheKey][]string
+	conftestMu       sync.Mutex
+	conftestCache    map[conftestCacheKey][]ImportStatement
 }
 
 // NewLanguage creates a new Python Gazelle language extension.
 func NewLanguage() language.Language {
 	return &pyLang{
-		packageDeps: make(map[string]bool),
+		packageDepsByRoot: make(map[string]map[string]bool),
+		sourceFilesCache:  make(map[sourceFilesCacheKey][]string),
+		conftestCache:     make(map[conftestCacheKey][]ImportStatement),
 	}
 }
 

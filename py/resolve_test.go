@@ -1,10 +1,16 @@
 package py
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/bazelbuild/bazel-gazelle/config"
+	"github.com/bazelbuild/bazel-gazelle/label"
+	"github.com/bazelbuild/bazel-gazelle/resolve"
+	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
 func TestNormalizeDist_SnakeCase(t *testing.T) {
@@ -73,6 +79,21 @@ func TestPipLabel(t *testing.T) {
 	}
 }
 
+func TestEffectivePipRepo_LabelConventionOverridesManifestRepo(t *testing.T) {
+	manifest := &manifestData{PipRepoName: "pip"}
+
+	defaultCfg := newPyConfig()
+	if got := effectivePipRepo(defaultCfg, manifest); got != "pip" {
+		t.Fatalf("default effectivePipRepo = %q, want manifest repo pip", got)
+	}
+
+	customCfg := newPyConfig()
+	applyDirective(customCfg, rule.Directive{Key: directiveLabelConvention, Value: "@custom_pip//{pkg}"}, "")
+	if got := effectivePipRepo(customCfg, manifest); got != "custom_pip" {
+		t.Fatalf("custom effectivePipRepo = %q, want custom_pip", got)
+	}
+}
+
 func TestParseRequirementLine(t *testing.T) {
 	cases := map[string]string{
 		"requests":                 "requests",
@@ -90,6 +111,41 @@ func TestParseRequirementLine(t *testing.T) {
 		if got := parseRequirementLine(in); got != want {
 			t.Errorf("parseRequirementLine(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestProjectDepsUsePythonRoot(t *testing.T) {
+	root := t.TempDir()
+	writeFile := func(rel string, content string) {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile("pyproject.toml", `
+[project]
+dependencies = ["global-only"]
+`)
+	writeFile("data/pyproject.toml", `
+[project]
+dependencies = ["requests"]
+`)
+
+	l := &pyLang{}
+	dataDeps := l.projectDeps(root, &pyConfig{pythonRoot: "data"})
+	if !dataDeps["requests"] {
+		t.Fatalf("data project deps missing requests: %v", dataDeps)
+	}
+	if dataDeps["global_only"] {
+		t.Fatalf("data project deps leaked root-only dependency: %v", dataDeps)
+	}
+
+	rootDeps := l.projectDeps(root, newPyConfig())
+	if !rootDeps["global_only"] {
+		t.Fatalf("root project deps missing global_only: %v", rootDeps)
 	}
 }
 
@@ -153,6 +209,268 @@ func TestDeduplicateAndSort(t *testing.T) {
 	}
 }
 
+func TestResolvePreserveDepsLeavesExistingDeps(t *testing.T) {
+	cfg := newPyConfig()
+	c := &config.Config{Exts: map[string]interface{}{languageName: cfg}}
+	r := rule.NewRule(cfg.libraryKind, "pkg")
+	wantDeps := []string{"//existing:dep", "@pip//requests"}
+	r.SetAttr("deps", wantDeps)
+
+	(&pyLang{}).Resolve(c, nil, nil, r, ImportData{PreserveDeps: true}, label.Label{Pkg: "pkg", Name: "pkg"})
+
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, wantDeps) {
+		t.Fatalf("deps = %v, want preserved %v", got, wantDeps)
+	}
+}
+
+func TestResolvePrefersExistingPipDepRepo(t *testing.T) {
+	cfg := newPyConfig()
+	cfg.pipLinkPattern = "@pip_ai_training//{pkg}"
+	cfg.pipLinkPatternExplicit = true
+	l := &pyLang{}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte(`
+[project]
+dependencies = ["requests"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &config.Config{
+		RepoRoot: root,
+		Exts:     map[string]interface{}{languageName: cfg},
+	}
+	(&resolve.Configurer{}).RegisterFlags(flag.NewFlagSet("test", flag.ContinueOnError), "", c)
+	ix := resolve.NewRuleIndex(nil)
+	r := rule.NewRule(cfg.libraryKind, "thread_safe_tokenizer")
+
+	l.Resolve(
+		c,
+		ix,
+		nil,
+		r,
+		ImportData{
+			Imports:      []ImportStatement{{ImportPath: "pplx_tokenizers"}},
+			ExistingDeps: []string{"@pip//pplx_tokenizers"},
+		},
+		label.Label{Pkg: "data/ai_training/training/common", Name: "thread_safe_tokenizer"},
+	)
+	got := r.AttrStrings("deps")
+	want := []string{"@pip//pplx_tokenizers"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("deps = %v, want existing pip dep repo %v", got, want)
+	}
+}
+
+func TestResolvePyProjectFallbackUsesManifestRepo(t *testing.T) {
+	cfg := newPyConfig()
+	cfg.manifestPath = "gazelle_python.yaml"
+	l := &pyLang{}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "gazelle_python.yaml"), []byte(`
+manifest:
+  pip_repository:
+    name: pip_ai_training
+  modules_mapping:
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte(`
+[project]
+dependencies = ["fallback-only"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &config.Config{
+		RepoRoot: root,
+		Exts:     map[string]interface{}{languageName: cfg},
+	}
+	(&resolve.Configurer{}).RegisterFlags(flag.NewFlagSet("test", flag.ContinueOnError), "", c)
+	ix := resolve.NewRuleIndex(nil)
+	r := rule.NewRule(cfg.libraryKind, "pkg")
+
+	l.Resolve(
+		c,
+		ix,
+		nil,
+		r,
+		ImportData{Imports: []ImportStatement{{ImportPath: "fallback_only"}}},
+		label.Label{Pkg: "pkg", Name: "pkg"},
+	)
+
+	want := []string{"@pip_ai_training//fallback_only"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("deps = %v, want pyproject fallback dep from manifest repo %v", got, want)
+	}
+}
+
+func TestResolvePrunesUnusedExistingPipDep(t *testing.T) {
+	cfg := newPyConfig()
+	l := &pyLang{}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte(`
+[project]
+dependencies = ["requests"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &config.Config{
+		RepoRoot: root,
+		Exts:     map[string]interface{}{languageName: cfg},
+	}
+	(&resolve.Configurer{}).RegisterFlags(flag.NewFlagSet("test", flag.ContinueOnError), "", c)
+	ix := resolve.NewRuleIndex(nil)
+	r := rule.NewRule(cfg.libraryKind, "thread_safe_tokenizer")
+
+	l.Resolve(
+		c,
+		ix,
+		nil,
+		r,
+		ImportData{ExistingDeps: []string{"@pip//pplx_tokenizers"}},
+		label.Label{Pkg: "data/ai_training/training/common", Name: "thread_safe_tokenizer"},
+	)
+
+	if got := r.AttrStrings("deps"); len(got) != 0 {
+		t.Fatalf("deps = %v, want stale existing pip dep pruned", got)
+	}
+}
+
+func TestResolvePreservesDuplicateExistingPipRepos(t *testing.T) {
+	cfg := newPyConfig()
+	l := &pyLang{}
+	root := t.TempDir()
+	c := &config.Config{
+		RepoRoot: root,
+		Exts:     map[string]interface{}{languageName: cfg},
+	}
+	(&resolve.Configurer{}).RegisterFlags(flag.NewFlagSet("test", flag.ContinueOnError), "", c)
+	ix := resolve.NewRuleIndex(nil)
+	r := rule.NewRule(cfg.libraryKind, "pkg")
+
+	l.Resolve(
+		c,
+		ix,
+		nil,
+		r,
+		ImportData{
+			Imports: []ImportStatement{{ImportPath: "mcp"}},
+			ExistingDeps: []string{
+				"@pip//mcp",
+				"@pip_asi_mcp//mcp",
+			},
+		},
+		label.Label{Pkg: "pkg", Name: "pkg"},
+	)
+
+	want := []string{"@pip//mcp", "@pip_asi_mcp//mcp"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("deps = %v, want duplicate pip repos preserved %v", got, want)
+	}
+}
+
+func TestResolveDoesNotPreserveUnusedDuplicateExistingPipRepos(t *testing.T) {
+	cfg := newPyConfig()
+	l := &pyLang{}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte(`
+[project]
+dependencies = ["requests"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &config.Config{
+		RepoRoot: root,
+		Exts:     map[string]interface{}{languageName: cfg},
+	}
+	(&resolve.Configurer{}).RegisterFlags(flag.NewFlagSet("test", flag.ContinueOnError), "", c)
+	ix := resolve.NewRuleIndex(nil)
+	r := rule.NewRule(cfg.libraryKind, "pkg")
+
+	l.Resolve(
+		c,
+		ix,
+		nil,
+		r,
+		ImportData{
+			Imports: []ImportStatement{{ImportPath: "requests"}},
+			ExistingDeps: []string{
+				"@pip//stale_package",
+				"@pip_alt//stale_package",
+			},
+		},
+		label.Label{Pkg: "pkg", Name: "pkg"},
+	)
+
+	want := []string{"@pip//requests"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("deps = %v, want only current import deps %v", got, want)
+	}
+}
+
+func TestGenerateResolvePreservesDuplicatePipReposOnMappedTest(t *testing.T) {
+	cfg := newPyConfig()
+	rel := "pplx/python/apps/asi/src/workers/mcp"
+	file := mustLoadBuildFile(t, rel, `
+# gazelle:resolve py mcp @pip_asi_mcp//mcp
+
+load("//tools/rules/python:index.bzl", "pplx_python_test")
+
+pplx_python_test(
+    name = "mcp_test",
+    srcs = ["tests/test_mcp.py"],
+    deps = [
+        "@pip//mcp",
+        "@pip_asi_mcp//mcp",
+    ],
+)
+`)
+	root := t.TempDir()
+	c := &config.Config{
+		RepoRoot: root,
+		KindMap: map[string]config.MappedKind{
+			defaultTestKind: {KindName: "pplx_python_test"},
+		},
+		Exts: map[string]interface{}{languageName: cfg},
+	}
+	(&resolve.Configurer{}).RegisterFlags(flag.NewFlagSet("test", flag.ContinueOnError), "", c)
+	(&resolve.Configurer{}).Configure(c, rel, file)
+	res := generateAggregateRules(
+		cfg,
+		c,
+		rel,
+		[]FileSpec{{RelPath: rel + "/tests/test_mcp.py"}},
+		map[string]FileImports{
+			rel + "/tests/test_mcp.py": {
+				Modules: []ImportStatement{{ImportPath: "mcp.types", SourceFile: rel + "/tests/test_mcp.py"}},
+			},
+		},
+		file,
+		true,
+	)
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %d, want 1", len(res.Gen))
+	}
+	r := res.Gen[0]
+	data, ok := res.Imports[0].(ImportData)
+	if !ok {
+		t.Fatalf("imports[0] has type %T, want ImportData", res.Imports[0])
+	}
+
+	(&pyLang{}).Resolve(
+		c,
+		resolve.NewRuleIndex(nil),
+		nil,
+		r,
+		data,
+		label.Label{Pkg: rel, Name: "mcp_test"},
+	)
+
+	want := []string{"@pip//mcp", "@pip_asi_mcp//mcp"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("deps = %v, want duplicate pip repos preserved %v", got, want)
+	}
+}
+
 func TestModuleCandidates_FromImportStopsAtFromModule(t *testing.T) {
 	got := moduleCandidates(
 		"pplx.common.core.pro_search.research_answer.handler.ResearchAnswerStreamingHandler",
@@ -180,6 +498,14 @@ func TestModuleCandidates_PlainImportWalksParents(t *testing.T) {
 	want := []string{"pkg.sub.module", "pkg.sub", "pkg"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("moduleCandidates() = %v, want %v", got, want)
+	}
+}
+
+func TestPipManifestCandidates_FromImportWalksParents(t *testing.T) {
+	got := pipManifestCandidates("rich.console.Console")
+	want := []string{"rich.console.Console", "rich.console", "rich"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("pipManifestCandidates() = %v, want %v", got, want)
 	}
 }
 

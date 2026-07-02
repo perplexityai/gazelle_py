@@ -28,10 +28,12 @@ const (
 // need later. The two import slices are kept apart because Resolve attaches
 // them to different rules (library vs test).
 type ImportData struct {
-	Imports     []ImportStatement // source-file imports
-	TestImports []ImportStatement // test-file imports
-	Ignore      map[string]bool   // module names to skip during resolution
-	IncludeDeps []string          // labels to always add to deps
+	Imports      []ImportStatement // source-file imports
+	TestImports  []ImportStatement // test-file imports
+	Ignore       map[string]bool   // module names to skip during resolution
+	IncludeDeps  []string          // labels to always add to deps
+	PreserveDeps bool              // keep existing deps when source analysis was incomplete
+	ExistingDeps []string          // deps already present on the merged target
 }
 
 // GenerateRules walks a directory's files, partitions them into source vs.
@@ -48,6 +50,9 @@ type ImportData struct {
 func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResult {
 	cfg, ok := args.Config.Exts[languageName].(*pyConfig)
 	if !ok || !cfg.enabled {
+		return language.GenerateResult{}
+	}
+	if cfg.generationMode == generationModeOff {
 		return language.GenerateResult{}
 	}
 
@@ -71,16 +76,15 @@ func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResu
 		specs = pythonFileSpecs(cfg, args.Dir, args.Rel, args.RegularFiles)
 	}
 
-	results, allComments := l.parseSpecs(specs)
-	annot := parseAnnotations(allComments)
+	results := l.parseSpecs(specs)
 
 	switch cfg.generationMode {
 	case generationModeFile:
-		return generatePerFileRules(cfg, args.Rel, specs, results, annot)
+		return generatePerFileRules(cfg, args.Config, args.Rel, specs, results, args.File)
 	case generationModeProject:
-		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, annot, args.File, false)
+		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, args.File, false)
 	default:
-		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, annot, args.File, true)
+		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, args.File, true)
 	}
 }
 
@@ -148,26 +152,19 @@ func hasBuildFile(dir string) bool {
 }
 
 // parseSpecs runs the import extractor over `specs` and returns the parsed
-// results keyed by RelPath plus a flat list of every comment encountered
-// (used by parseAnnotations for `# gazelle:ignore` / `# gazelle:include_dep`).
-func (l *pyLang) parseSpecs(specs []FileSpec) (map[string]FileImports, []string) {
+// results keyed by RelPath.
+func (l *pyLang) parseSpecs(specs []FileSpec) map[string]FileImports {
 	if len(specs) == 0 {
-		return nil, nil
+		return nil
 	}
 	results, err := l.extractImportsBatch(specs)
 	if err != nil {
 		// We don't fail the whole gazelle run on a parser error — we just
 		// drop this directory's imports. The next run picks them up after
 		// the user fixes whatever made the parser unhappy.
-		return nil, nil
+		return nil
 	}
-	var allComments []string
-	for _, s := range specs {
-		if r, ok := results[s.RelPath]; ok {
-			allComments = append(allComments, r.Comments...)
-		}
-	}
-	return results, allComments
+	return results
 }
 
 // generateAggregateRules emits one library + one test rule covering every
@@ -178,17 +175,21 @@ func (l *pyLang) parseSpecs(specs []FileSpec) (map[string]FileImports, []string)
 // is extracted into a dedicated `py_library` named `conftest` with
 // `testonly=True`, mirroring rules_python's gazelle plugin. Tests pick it up
 // transitively through the ancestor-conftest synthesis in resolve.go.
-func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, annot annotations, file *rule.File, manageHandRolled bool) language.GenerateResult {
+func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, file *rule.File, manageHandRolled bool) language.GenerateResult {
 	libName, testName := resolveRuleNames(cfg, rel)
 	managed := map[string]bool{
 		libName:            true,
 		testName:           true,
 		conftestTargetName: true,
 	}
-	handOwned := handOwnedPythonSources(cfg, c, rel, specs, file, managed)
+	facts := newSourceFacts(rel, specs, results)
+	ownership := newSpecPackageSourceOwnership(cfg, c, rel, specs, file, managed)
+	handOwned := ownership.handOwnedSources()
+	existingLibSources := existingSourceSet(ownership, libName, false)
+	existingTestSources := existingSourceSet(ownership, testName, true)
 
 	var libSrcs, testSrcs []string
-	var sourceImports, testImports, conftestImports []ImportStatement
+	var conftestImports []ImportStatement
 	hasConftest := false
 	for _, s := range specs {
 		// Sources are listed relative to the package the rule lives in.
@@ -196,7 +197,8 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 		// turns "apps/server/utils/x.py" into "utils/x.py" inside
 		// //apps/server's BUILD file.
 		srcName := pkgRelativePath(s.RelPath, rel)
-		if handOwned[filepath.ToSlash(srcName)] {
+		srcKey := filepath.ToSlash(srcName)
+		if handOwned[srcKey] {
 			continue
 		}
 		if isConftestAtPackageRoot(srcName) {
@@ -207,44 +209,46 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 			continue
 		}
 		isTest := isTestFile(srcName, cfg)
+		if existingTestSources[srcKey] {
+			isTest = true
+		} else if existingLibSources[srcKey] {
+			isTest = false
+		}
 		if isTest {
 			testSrcs = append(testSrcs, srcName)
 		} else {
 			libSrcs = append(libSrcs, srcName)
 		}
-		if r, ok := results[s.RelPath]; ok {
-			if isTest {
-				testImports = append(testImports, r.Modules...)
-			} else {
-				sourceImports = append(sourceImports, r.Modules...)
-			}
-		}
 	}
 	sort.Strings(libSrcs)
 	sort.Strings(testSrcs)
 
-	skipLib := cfg.skipEmptyInit && allEmptyInits(libSrcs, specs, rel, results)
-	skipTest := cfg.skipEmptyInit && allEmptyInits(testSrcs, specs, rel, results)
+	skipLib := cfg.skipEmptyInit && facts.allEmptyInits(libSrcs)
+	skipTest := cfg.skipEmptyInit && facts.allEmptyInits(testSrcs)
 
-	if (len(libSrcs) == 0 || skipLib) && (len(testSrcs) == 0 || skipTest) && !hasConftest {
-		return language.GenerateResult{}
-	}
-
-	var genRules []*rule.Rule
-	var genImports []interface{}
+	var plans []rulePlan
 
 	if len(libSrcs) > 0 && !skipLib {
 		r := rule.NewRule(cfg.libraryKind, libName)
-		r.SetAttr("srcs", libSrcs)
+		importSrcs := libSrcs
+		if explicitSrcs, ok := ownership.existingExplicitRuleSources(libName, false); ok {
+			importSrcs = explicitSrcs
+			r.SetAttr("srcs", explicitSrcs)
+		} else if ownership.preservesSourceAttrs(libName, false) {
+			if srcs, ok := ownership.existingRuleSources(libName, false); ok {
+				importSrcs = srcs
+			}
+		} else {
+			r.SetAttr("srcs", libSrcs)
+		}
 		if len(cfg.visibility) > 0 {
 			r.SetAttr("visibility", cfg.visibility)
 		}
-		genRules = append(genRules, r)
-		genImports = append(genImports, ImportData{
-			Imports:     sourceImports,
-			Ignore:      annot.ignore,
-			IncludeDeps: annot.includeDep,
-		})
+		data := withExistingDeps(importDataForSources(facts, importSrcs, false), ownership, libName, false)
+		if data.PreserveDeps {
+			preserveExistingDeps(r, ownership, libName, false)
+		}
+		plans = append(plans, rulePlan{rule: r, imports: data})
 	}
 
 	if hasConftest {
@@ -254,109 +258,146 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 		if len(cfg.visibility) > 0 {
 			r.SetAttr("visibility", cfg.visibility)
 		}
-		genRules = append(genRules, r)
-		genImports = append(genImports, ImportData{
+		annot := facts.annotationsFor([]string{conftestFilename})
+		data := withExistingDeps(ImportData{
 			Imports:     conftestImports,
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,
+		}, ownership, conftestTargetName, false)
+		plans = append(plans, rulePlan{
+			rule:    r,
+			imports: data,
 		})
 	}
 
 	if len(testSrcs) > 0 && !skipTest {
 		r := rule.NewRule(cfg.testKind, testName)
-		r.SetAttr("srcs", testSrcs)
-		genRules = append(genRules, r)
-		genImports = append(genImports, ImportData{
-			TestImports: testImports,
-			Ignore:      annot.ignore,
-			IncludeDeps: annot.includeDep,
-		})
+		importSrcs := testSrcs
+		if explicitSrcs, ok := ownership.existingExplicitRuleSources(testName, true); ok {
+			importSrcs = explicitSrcs
+			r.SetAttr("srcs", explicitSrcs)
+		} else if ownership.preservesSourceAttrs(testName, true) {
+			if srcs, ok := ownership.existingRuleSources(testName, true); ok {
+				importSrcs = srcs
+			}
+		} else {
+			r.SetAttr("srcs", testSrcs)
+		}
+		data := withExistingDeps(importDataForSources(facts, importSrcs, true), ownership, testName, true)
+		if data.PreserveDeps {
+			preserveExistingDeps(r, ownership, testName, true)
+		}
+		plans = append(plans, rulePlan{rule: r, imports: data})
 	}
 
 	if manageHandRolled {
-		extraRules, extraImports := generateHandRolledRules(cfg, c, rel, specs, results, annot, file, managed)
-		genRules = append(genRules, extraRules...)
-		genImports = append(genImports, extraImports...)
+		extraPlans := planHandRolledRules(cfg, c, rel, specs, facts, ownership, file, managed)
+		plans = append(plans, extraPlans...)
 	}
 
-	return language.GenerateResult{
-		Gen:     genRules,
-		Imports: genImports,
+	return generateResultFromPlans(plans)
+}
+
+func importDataForSources(facts *sourceFacts, srcs []string, isTest bool) ImportData {
+	imps, ok := facts.importsFor(srcs)
+	if !ok {
+		return ImportData{PreserveDeps: true}
 	}
+	annot := facts.annotationsFor(srcs)
+	data := ImportData{
+		Ignore:      annot.ignore,
+		IncludeDeps: annot.includeDep,
+	}
+	if isTest {
+		data.TestImports = imps
+	} else {
+		data.Imports = imps
+	}
+	return data
+}
+
+func preserveExistingDeps(r *rule.Rule, ownership *packageSourceOwnership, name string, isTest bool) {
+	deps, ok := ownership.existingRuleDeps(name, isTest)
+	if !ok {
+		return
+	}
+	r.SetAttr("deps", deps)
+}
+
+func withExistingDeps(data ImportData, ownership *packageSourceOwnership, name string, isTest bool) ImportData {
+	deps, ok := ownership.existingRuleDeps(name, isTest)
+	if !ok {
+		return data
+	}
+	data.ExistingDeps = deps
+	return data
+}
+
+func existingSourceSet(ownership *packageSourceOwnership, name string, isTest bool) map[string]bool {
+	srcs, ok := ownership.existingRuleSources(name, isTest)
+	if !ok {
+		return nil
+	}
+	set := make(map[string]bool, len(srcs))
+	for _, src := range srcs {
+		set[filepath.ToSlash(src)] = true
+	}
+	return set
 }
 
 func handOwnedPythonSources(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, file *rule.File, managed map[string]bool) map[string]bool {
-	owned := map[string]bool{}
-	if file == nil {
-		return owned
-	}
-	libKinds := mappedKinds(c, cfg.libraryKind)
-	testKinds := mappedKinds(c, cfg.testKind)
-
-	for _, er := range file.Rules {
-		if managed[er.Name()] {
-			continue
-		}
-		if !libKinds[er.Kind()] && !testKinds[er.Kind()] {
-			continue
-		}
-		srcs, ok := rulePythonSourceFilesFromSpecs(cfg, er, specs, rel)
-		if !ok {
-			continue
-		}
-		if er.Attr("srcs") == nil {
-			srcs = excludeExplicitSiblingSources(cfg, c, er, file, srcs)
-		}
-		for _, src := range srcs {
-			owned[filepath.ToSlash(src)] = true
-		}
-	}
-	return owned
+	return newSpecPackageSourceOwnership(cfg, c, rel, specs, file, managed).handOwnedSources()
 }
 
-func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, annot annotations, file *rule.File, managed map[string]bool) ([]*rule.Rule, []interface{}) {
-	if file == nil {
-		return nil, nil
-	}
-	libKinds := mappedKinds(c, cfg.libraryKind)
-	testKinds := mappedKinds(c, cfg.testKind)
+func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool) ([]*rule.Rule, []interface{}) {
+	return splitRulePlans(planHandRolledRules(cfg, c, rel, specs, facts, ownership, file, managed))
+}
 
-	var genRules []*rule.Rule
-	var genImports []interface{}
+func planHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool) []rulePlan {
+	if file == nil {
+		return nil
+	}
+	if facts == nil {
+		facts = newSourceFacts(rel, specs, nil)
+	}
+	if ownership == nil {
+		ownership = newSpecPackageSourceOwnership(cfg, c, rel, specs, file, managed)
+	}
+
+	var plans []rulePlan
 	for _, er := range file.Rules {
 		if managed[er.Name()] {
 			continue
 		}
-		isLib := libKinds[er.Kind()]
-		isTest := testKinds[er.Kind()]
-		if !isLib && !isTest {
+		okRule, isTest := ownership.isPythonRule(er)
+		if !okRule {
 			continue
 		}
-		srcs, ok := rulePythonSourceFilesFromSpecs(cfg, er, specs, rel)
+		srcs, ok := ownership.sourcesForRule(er)
 		if !ok {
 			continue
 		}
-		if er.Attr("srcs") == nil {
-			srcs = excludeExplicitSiblingSources(cfg, c, er, file, srcs)
-		}
-		imps, ok := importsForSrcs(rel, srcs, results)
+		imps, ok := facts.importsFor(srcs)
 		if !ok {
 			continue
 		}
+		annot := facts.annotationsFor(srcs)
 		kind := cfg.libraryKind
 		data := ImportData{Imports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
 		if isTest {
 			kind = cfg.testKind
 			data = ImportData{TestImports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
 		}
+		if er.Attr("deps") != nil {
+			data.ExistingDeps = er.AttrStrings("deps")
+		}
 		r := rule.NewRule(kind, er.Name())
 		if er.Attr("srcs") != nil {
 			r.SetAttr("srcs", er.AttrStrings("srcs"))
 		}
-		genRules = append(genRules, r)
-		genImports = append(genImports, data)
+		plans = append(plans, rulePlan{rule: r, imports: data})
 	}
-	return genRules, genImports
+	return plans
 }
 
 func mappedKinds(c *config.Config, kind string) map[string]bool {
@@ -381,21 +422,19 @@ func mappedKinds(c *config.Config, kind string) map[string]bool {
 }
 
 func importsForSrcs(rel string, srcs []string, results map[string]FileImports) ([]ImportStatement, bool) {
-	var imps []ImportStatement
-	for _, src := range srcs {
-		r, ok := results[filepath.Join(rel, src)]
-		if !ok {
-			return nil, false
-		}
-		imps = append(imps, r.Modules...)
-	}
-	return imps, true
+	return newSourceFacts(rel, nil, results).importsFor(srcs)
+}
+
+func annotationsForSrcs(rel string, srcs []string, results map[string]FileImports) annotations {
+	return newSourceFacts(rel, nil, results).annotationsFor(srcs)
 }
 
 // generatePerFileRules emits one rule per source file: a library rule named
 // after the file (e.g. `helpers.py` → `helpers`) for non-test files, and the
 // configured test kind for test files. Selected by `python_generation_mode file`.
-func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results map[string]FileImports, annot annotations) language.GenerateResult {
+func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, file *rule.File) language.GenerateResult {
+	facts := newSourceFacts(rel, specs, results)
+	ownership := newSpecPackageSourceOwnership(cfg, c, rel, specs, file, nil)
 	// Sort by the in-package relative path so emitted rules are stable.
 	sortedSpecs := append([]FileSpec(nil), specs...)
 	sort.Slice(sortedSpecs, func(i, j int) bool {
@@ -403,9 +442,8 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 	})
 
 	var (
-		genRules   []*rule.Rule
-		genImports []interface{}
-		libSpecs   []FileSpec
+		plans    []rulePlan
+		libSpecs []FileSpec
 	)
 	for _, s := range sortedSpecs {
 		srcName := pkgRelativePath(s.RelPath, rel)
@@ -431,15 +469,19 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 		if len(cfg.visibility) > 0 {
 			r.SetAttr("visibility", cfg.visibility)
 		}
-		genRules = append(genRules, r)
 		var imports []ImportStatement
-		if pr, ok := results[s.RelPath]; ok {
+		if pr, ok := facts.resultFor(srcName); ok {
 			imports = pr.Modules
 		}
-		genImports = append(genImports, ImportData{
+		annot := facts.annotationsFor([]string{srcName})
+		data := withExistingDeps(ImportData{
 			Imports:     imports,
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,
+		}, ownership, ruleName, false)
+		plans = append(plans, rulePlan{
+			rule:    r,
+			imports: data,
 		})
 	}
 
@@ -462,25 +504,23 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 		}
 		r := rule.NewRule(cfg.testKind, ruleName)
 		r.SetAttr("srcs", []string{srcName})
-		genRules = append(genRules, r)
 		var testMods []ImportStatement
-		if pr, ok := results[s.RelPath]; ok {
+		if pr, ok := facts.resultFor(srcName); ok {
 			testMods = pr.Modules
 		}
-		genImports = append(genImports, ImportData{
+		annot := facts.annotationsFor([]string{srcName})
+		data := withExistingDeps(ImportData{
 			TestImports: testMods,
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,
+		}, ownership, ruleName, true)
+		plans = append(plans, rulePlan{
+			rule:    r,
+			imports: data,
 		})
 	}
 
-	if len(genRules) == 0 {
-		return language.GenerateResult{}
-	}
-	return language.GenerateResult{
-		Gen:     genRules,
-		Imports: genImports,
-	}
+	return generateResultFromPlans(plans)
 }
 
 // pkgRelativePath drops the package prefix from a workspace-relative path.
@@ -520,7 +560,7 @@ func isConftestAtPackageRoot(srcName string) bool {
 }
 
 // allEmptyInits reports whether every entry in `srcs` is an `__init__.py`
-// whose parsed AST has no top-level statements. Empty `srcs` returns
+// whose parsed AST has no top-level code. Empty `srcs` returns
 // false — there's nothing to be "all empty inits" about. Emptiness is
 // supplied by the rust import_extractor (FileImports.IsEmpty); a file
 // missing from `results` is treated as non-empty so we never accidentally
@@ -536,27 +576,7 @@ func isConftestAtPackageRoot(srcName string) bool {
 // (`from . import x`) require the `__init__.py` to be part of the same
 // rule as the importing module.
 func allEmptyInits(srcs []string, specs []FileSpec, rel string, results map[string]FileImports) bool {
-	if len(srcs) == 0 {
-		return false
-	}
-	relBy := make(map[string]string, len(specs))
-	for _, s := range specs {
-		relBy[pkgRelativePath(s.RelPath, rel)] = s.RelPath
-	}
-	for _, src := range srcs {
-		if !isInitFile(src) {
-			return false
-		}
-		relPath, ok := relBy[src]
-		if !ok {
-			return false
-		}
-		r, ok := results[relPath]
-		if !ok || !r.IsEmpty {
-			return false
-		}
-	}
-	return true
+	return newSourceFacts(rel, specs, results).allEmptyInits(srcs)
 }
 
 // resolveRuleNames returns the (library, test) rule names for a directory,

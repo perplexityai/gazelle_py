@@ -2,7 +2,7 @@
 //
 // Parses Python files with ruff_python_parser and walks the AST to collect:
 // - Import statements (import X, from X import Y)
-// - Comments (for gazelle annotations like # gazelle:ignore)
+// - Gazelle annotation comments (like # gazelle:ignore)
 // - __main__ detection (if __name__ == "__main__":)
 //
 // Output matches the Go-side PyFileOutput/PyModule structs exactly so that
@@ -10,7 +10,7 @@
 // zero translation beyond the wire format.
 
 use ruff_python_ast::{self as ast, Expr, Stmt};
-use ruff_python_parser::{Mode, parse_unchecked};
+use ruff_python_parser::{parse_unchecked, Mode};
 use ruff_text_size::Ranged;
 
 /// A parsed Python module import.
@@ -30,10 +30,10 @@ pub struct PyFileOutput {
     pub modules: Vec<PyModule>,
     pub comments: Vec<String>,
     pub has_main: bool,
-    /// True iff the parsed AST has no top-level statements — i.e. the file
-    /// is whitespace and/or comments only. A docstring, `pass`, or any
-    /// import/assignment counts as a statement and yields false. Drives
-    /// `python_skip_empty_init` on the Go side.
+    /// True iff the parsed AST has no top-level code — i.e. the file is
+    /// whitespace, comments, or a module docstring only. `pass`, imports, and
+    /// assignments count as code. Drives `python_skip_empty_init` on the Go
+    /// side.
     pub is_empty: bool,
 }
 
@@ -44,7 +44,7 @@ pub fn extract_imports_from_file(abs_path: &str, rel_path: &str) -> Result<PyFil
     Ok(extract_imports(&source, rel_path))
 }
 
-/// Extract imports, comments, and main detection from Python source code.
+/// Extract imports, Gazelle annotation comments, and main detection from Python source code.
 ///
 /// For malformed files, ruff performs error recovery and produces a partial AST.
 /// We extract imports from whatever the parser could recover, which is the right
@@ -59,21 +59,23 @@ pub fn extract_imports(source: &str, rel_filepath: &str) -> PyFileOutput {
         ast::Mod::Expression(_) => return empty_output(rel_filepath),
     };
 
-    let is_empty = stmts.is_empty();
+    let is_empty = is_empty_module_body(&stmts);
 
     let mut modules = Vec::new();
     let mut has_main = false;
+    let locator = SourceLocator::new(source);
 
     extract_from_stmts(
         &stmts,
         source,
+        &locator,
         rel_filepath,
         false,
         &mut modules,
         &mut has_main,
     );
 
-    let comments = extract_comments(source);
+    let comments = extract_annotation_comments(source);
 
     PyFileOutput {
         file_name: rel_filepath.to_string(),
@@ -84,9 +86,18 @@ pub fn extract_imports(source: &str, rel_filepath: &str) -> PyFileOutput {
     }
 }
 
+fn is_empty_module_body(stmts: &[Stmt]) -> bool {
+    stmts.is_empty()
+        || matches!(
+            stmts,
+            [Stmt::Expr(expr_stmt)] if matches!(expr_stmt.value.as_ref(), Expr::StringLiteral(_))
+        )
+}
+
 fn extract_from_stmts(
     stmts: &[Stmt],
     source: &str,
+    locator: &SourceLocator,
     rel_filepath: &str,
     in_type_checking: bool,
     modules: &mut Vec<PyModule>,
@@ -100,7 +111,7 @@ fn extract_from_stmts(
                     if name.starts_with('.') {
                         continue;
                     }
-                    let lineno = line_number(source, alias.range().start());
+                    let lineno = locator.line_number(alias.range().start());
                     modules.push(PyModule {
                         name: name.to_string(),
                         lineno,
@@ -137,7 +148,7 @@ fn extract_from_stmts(
                 for alias in &import_from.names {
                     let alias_name = alias.name.as_str();
                     if alias_name == "*" {
-                        let lineno = line_number(source, alias.range().start());
+                        let lineno = locator.line_number(alias.range().start());
                         modules.push(PyModule {
                             name: from_prefix.clone(),
                             lineno,
@@ -154,7 +165,7 @@ fn extract_from_stmts(
                         format!("{from_prefix}.{alias_name}")
                     };
 
-                    let lineno = line_number(source, alias.range().start());
+                    let lineno = locator.line_number(alias.range().start());
                     modules.push(PyModule {
                         name: full_name,
                         lineno,
@@ -172,6 +183,7 @@ fn extract_from_stmts(
                 extract_from_stmts(
                     &if_stmt.body,
                     source,
+                    locator,
                     rel_filepath,
                     in_type_checking || is_type_checking,
                     modules,
@@ -181,6 +193,7 @@ fn extract_from_stmts(
                     extract_from_stmts(
                         &clause.body,
                         source,
+                        locator,
                         rel_filepath,
                         in_type_checking,
                         modules,
@@ -192,6 +205,7 @@ fn extract_from_stmts(
                 extract_from_stmts(
                     &try_stmt.body,
                     source,
+                    locator,
                     rel_filepath,
                     in_type_checking,
                     modules,
@@ -202,6 +216,7 @@ fn extract_from_stmts(
                     extract_from_stmts(
                         &h.body,
                         source,
+                        locator,
                         rel_filepath,
                         in_type_checking,
                         modules,
@@ -211,6 +226,7 @@ fn extract_from_stmts(
                 extract_from_stmts(
                     &try_stmt.orelse,
                     source,
+                    locator,
                     rel_filepath,
                     in_type_checking,
                     modules,
@@ -219,6 +235,7 @@ fn extract_from_stmts(
                 extract_from_stmts(
                     &try_stmt.finalbody,
                     source,
+                    locator,
                     rel_filepath,
                     in_type_checking,
                     modules,
@@ -232,6 +249,7 @@ fn extract_from_stmts(
                 extract_from_stmts(
                     &func_def.body,
                     source,
+                    locator,
                     rel_filepath,
                     in_type_checking,
                     modules,
@@ -242,6 +260,7 @@ fn extract_from_stmts(
                 extract_from_stmts(
                     &class_def.body,
                     source,
+                    locator,
                     rel_filepath,
                     in_type_checking,
                     modules,
@@ -252,6 +271,7 @@ fn extract_from_stmts(
                 extract_from_stmts(
                     &with_stmt.body,
                     source,
+                    locator,
                     rel_filepath,
                     in_type_checking,
                     modules,
@@ -262,6 +282,7 @@ fn extract_from_stmts(
                 extract_from_stmts(
                     &for_stmt.body,
                     source,
+                    locator,
                     rel_filepath,
                     in_type_checking,
                     modules,
@@ -270,6 +291,7 @@ fn extract_from_stmts(
                 extract_from_stmts(
                     &for_stmt.orelse,
                     source,
+                    locator,
                     rel_filepath,
                     in_type_checking,
                     modules,
@@ -280,6 +302,7 @@ fn extract_from_stmts(
                 extract_from_stmts(
                     &while_stmt.body,
                     source,
+                    locator,
                     rel_filepath,
                     in_type_checking,
                     modules,
@@ -288,6 +311,7 @@ fn extract_from_stmts(
                 extract_from_stmts(
                     &while_stmt.orelse,
                     source,
+                    locator,
                     rel_filepath,
                     in_type_checking,
                     modules,
@@ -328,12 +352,12 @@ fn is_main_test(expr: &Expr) -> bool {
     false
 }
 
-fn extract_comments(source: &str) -> Vec<String> {
+fn extract_annotation_comments(source: &str) -> Vec<String> {
     source
         .lines()
         .filter_map(|line| {
             let trimmed = line.trim();
-            if trimmed.starts_with('#') {
+            if trimmed.starts_with("# gazelle:") {
                 Some(trimmed.to_string())
             } else {
                 None
@@ -342,13 +366,31 @@ fn extract_comments(source: &str) -> Vec<String> {
         .collect()
 }
 
-fn line_number(source: &str, offset: ruff_text_size::TextSize) -> u32 {
-    let byte_offset = offset.to_u32() as usize;
-    let line = source[..byte_offset.min(source.len())]
-        .bytes()
-        .filter(|&b| b == b'\n')
-        .count();
-    (line + 1) as u32
+struct SourceLocator {
+    newline_offsets: Vec<usize>,
+    len: usize,
+}
+
+impl SourceLocator {
+    fn new(source: &str) -> Self {
+        let newline_offsets = source
+            .bytes()
+            .enumerate()
+            .filter_map(|(i, b)| if b == b'\n' { Some(i) } else { None })
+            .collect();
+        Self {
+            newline_offsets,
+            len: source.len(),
+        }
+    }
+
+    fn line_number(&self, offset: ruff_text_size::TextSize) -> u32 {
+        let byte_offset = (offset.to_u32() as usize).min(self.len);
+        let line = self
+            .newline_offsets
+            .partition_point(|newline| *newline < byte_offset);
+        (line + 1) as u32
+    }
 }
 
 fn empty_output(rel_filepath: &str) -> PyFileOutput {
@@ -440,14 +482,13 @@ mod tests {
     }
 
     #[test]
-    fn comments() {
+    fn annotation_comments() {
         let out = extract_imports(
             "# gazelle:ignore sqlalchemy\nimport os\n# regular comment",
             "test.py",
         );
-        assert_eq!(out.comments.len(), 2);
+        assert_eq!(out.comments.len(), 1);
         assert_eq!(out.comments[0], "# gazelle:ignore sqlalchemy");
-        assert_eq!(out.comments[1], "# regular comment");
     }
 
     #[test]
@@ -497,14 +538,18 @@ mod tests {
         // only blank lines and comments has zero top-level statements.
         let out = extract_imports("# header\n\n# another comment\n", "test.py");
         assert!(out.is_empty);
-        assert_eq!(out.comments.len(), 2);
+        assert_eq!(out.comments.len(), 0);
     }
 
     #[test]
-    fn docstring_only_is_not_empty() {
-        // Module docstrings are real statements (Expr Stmt holding a string
-        // literal) — they assign to `__doc__` at runtime. Treat as code.
+    fn docstring_only_is_empty() {
         let out = extract_imports("\"\"\"module docstring\"\"\"\n", "test.py");
+        assert!(out.is_empty);
+    }
+
+    #[test]
+    fn docstring_plus_code_is_not_empty() {
+        let out = extract_imports("\"\"\"module docstring\"\"\"\nimport os\n", "test.py");
         assert!(!out.is_empty);
     }
 

@@ -1,0 +1,6 @@
+manifest:
+  pip_repository:
+    name: custom_pip
+  modules_mapping:
+    google.api_core: google-api-core
+    PIL: pillow

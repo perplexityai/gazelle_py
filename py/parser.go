@@ -12,18 +12,19 @@ type ImportStatement struct {
 	TypeCheckingOnly bool   // true if inside `if TYPE_CHECKING:` block
 }
 
-// FileImports holds everything the parser extracted for a single file. Comments
-// drive `# gazelle:ignore` / `# gazelle:include_dep` annotation parsing in the
-// generator; HasMain is captured for completeness even though we don't currently
+// FileImports holds everything the parser extracted for a single file.
+// Annotations drive `# gazelle:ignore` / `# gazelle:include_dep` handling in
+// the generator; HasMain is captured for completeness even though we don't currently
 // use it to emit `py_binary` rules. IsEmpty is true when the AST has no
-// top-level statements (whitespace and/or comments only) and feeds
+// top-level code (whitespace, comments, or module docstring only) and feeds
 // `python_skip_empty_init` rule suppression.
 type FileImports struct {
-	FileName string // workspace-relative path (e.g. "pkg/foo.py")
-	Modules  []ImportStatement
-	Comments []string
-	HasMain  bool
-	IsEmpty  bool
+	FileName    string // workspace-relative path (e.g. "pkg/foo.py")
+	Modules     []ImportStatement
+	Comments    []string // Gazelle annotation comments from the wire format.
+	Annotations annotations
+	HasMain     bool
+	IsEmpty     bool
 }
 
 // extractImportsBatch sends a batch of (abs, rel) file specs through the cgo

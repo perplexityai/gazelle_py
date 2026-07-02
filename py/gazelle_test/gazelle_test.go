@@ -14,6 +14,7 @@ package gazelle_test_test
 import (
 	"flag"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 	"time"
@@ -32,6 +33,15 @@ var gazelleBinaryPath = flag.String(
 // only for the UPDATE_SNAPSHOTS hint testtools prints on failure.
 const testdataRelative = "py/gazelle_test/testdata"
 
+func currentRepoRunfile(relativePath string) (string, error) {
+	repo := runfiles.CurrentRepository()
+	runfilesDir := repo
+	if runfilesDir == "" {
+		runfilesDir = "_main"
+	}
+	return runfiles.RlocationFrom(path.Join(runfilesDir, relativePath), repo)
+}
+
 func TestFixtures(t *testing.T) {
 	if *gazelleBinaryPath == "" {
 		t.Fatal("-gazelle_binary flag is required (set by the gazelle_tests macro)")
@@ -41,8 +51,7 @@ func TestFixtures(t *testing.T) {
 		t.Fatalf("resolve gazelle binary: %v", err)
 	}
 
-	testdataRoot, err := runfiles.Rlocation(filepath.Join(
-		os.Getenv("TEST_WORKSPACE"), testdataRelative))
+	testdataRoot, err := currentRepoRunfile(testdataRelative)
 	if err != nil {
 		t.Fatalf("resolve testdata root: %v", err)
 	}
