@@ -133,26 +133,29 @@ func splitYAMLKV(line string) (key, value string, ok bool) {
 }
 
 var (
-	manifestOnce   sync.Once
-	manifestCached *manifestData
+	manifestCacheMu sync.Mutex
+	manifestCache   = map[string]*manifestData{}
 )
 
 // loadManifestOnce caches the manifest across Configure calls so we don't
 // re-read the file for every directory in the gazelle walk.
 func loadManifestOnce(path string) *manifestData {
-	manifestOnce.Do(func() {
-		m, err := loadManifest(path)
-		if err != nil {
-			// Treat read errors the same as missing — the user gets diagnostics
-			// from gazelle when a dep can't be resolved.
-			manifestCached = &manifestData{ModulesMapping: map[string]string{}}
-			return
-		}
-		if m == nil {
-			manifestCached = &manifestData{ModulesMapping: map[string]string{}}
-			return
-		}
-		manifestCached = m
-	})
-	return manifestCached
+	manifestCacheMu.Lock()
+	defer manifestCacheMu.Unlock()
+
+	if m, ok := manifestCache[path]; ok {
+		return m
+	}
+
+	m, err := loadManifest(path)
+	if err != nil {
+		// Treat read errors the same as missing — the user gets diagnostics
+		// from gazelle when a dep can't be resolved.
+		m = &manifestData{ModulesMapping: map[string]string{}}
+	}
+	if m == nil {
+		m = &manifestData{ModulesMapping: map[string]string{}}
+	}
+	manifestCache[path] = m
+	return m
 }

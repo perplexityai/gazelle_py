@@ -10,7 +10,7 @@
 // zero translation beyond the wire format.
 
 use ruff_python_ast::{self as ast, Expr, Stmt};
-use ruff_python_parser::{Mode, parse_unchecked};
+use ruff_python_parser::{parse_unchecked, Mode};
 use ruff_text_size::Ranged;
 
 /// A parsed Python module import.
@@ -30,10 +30,10 @@ pub struct PyFileOutput {
     pub modules: Vec<PyModule>,
     pub comments: Vec<String>,
     pub has_main: bool,
-    /// True iff the parsed AST has no top-level statements — i.e. the file
-    /// is whitespace and/or comments only. A docstring, `pass`, or any
-    /// import/assignment counts as a statement and yields false. Drives
-    /// `python_skip_empty_init` on the Go side.
+    /// True iff the parsed AST has no top-level code — i.e. the file is
+    /// whitespace, comments, or a module docstring only. `pass`, imports, and
+    /// assignments count as code. Drives `python_skip_empty_init` on the Go
+    /// side.
     pub is_empty: bool,
 }
 
@@ -59,7 +59,7 @@ pub fn extract_imports(source: &str, rel_filepath: &str) -> PyFileOutput {
         ast::Mod::Expression(_) => return empty_output(rel_filepath),
     };
 
-    let is_empty = stmts.is_empty();
+    let is_empty = is_empty_module_body(&stmts);
 
     let mut modules = Vec::new();
     let mut has_main = false;
@@ -82,6 +82,14 @@ pub fn extract_imports(source: &str, rel_filepath: &str) -> PyFileOutput {
         has_main,
         is_empty,
     }
+}
+
+fn is_empty_module_body(stmts: &[Stmt]) -> bool {
+    stmts.is_empty()
+        || matches!(
+            stmts,
+            [Stmt::Expr(expr_stmt)] if matches!(expr_stmt.value.as_ref(), Expr::StringLiteral(_))
+        )
 }
 
 fn extract_from_stmts(
@@ -501,10 +509,14 @@ mod tests {
     }
 
     #[test]
-    fn docstring_only_is_not_empty() {
-        // Module docstrings are real statements (Expr Stmt holding a string
-        // literal) — they assign to `__doc__` at runtime. Treat as code.
+    fn docstring_only_is_empty() {
         let out = extract_imports("\"\"\"module docstring\"\"\"\n", "test.py");
+        assert!(out.is_empty);
+    }
+
+    #[test]
+    fn docstring_plus_code_is_not_empty() {
+        let out = extract_imports("\"\"\"module docstring\"\"\"\nimport os\n", "test.py");
         assert!(!out.is_empty);
     }
 

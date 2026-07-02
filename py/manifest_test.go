@@ -1,6 +1,10 @@
 package py
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseManifest_Basic(t *testing.T) {
 	const content = `
@@ -46,5 +50,46 @@ func TestParseManifest_NoManifestSection(t *testing.T) {
 	m := parseManifest("# no manifest:\n\nfoo: bar\n")
 	if len(m.ModulesMapping) != 0 {
 		t.Errorf("expected empty mapping, got %v", m.ModulesMapping)
+	}
+}
+
+func TestLoadManifestOnce_CachesByPath(t *testing.T) {
+	dir := t.TempDir()
+	rootPath := filepath.Join(dir, "root.yaml")
+	dataPath := filepath.Join(dir, "data.yaml")
+
+	if err := os.WriteFile(rootPath, []byte(`
+manifest:
+  pip_repository:
+    name: pip
+  modules_mapping:
+    yaml: pyyaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dataPath, []byte(`
+manifest:
+  pip_repository:
+    name: pip_ai_training
+  modules_mapping:
+    pyspark: pyspark
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := loadManifestOnce(rootPath)
+	data := loadManifestOnce(dataPath)
+
+	if root.PipRepoName != "pip" {
+		t.Fatalf("root PipRepoName = %q, want pip", root.PipRepoName)
+	}
+	if _, ok := root.ModulesMapping["pyspark"]; ok {
+		t.Fatalf("root manifest unexpectedly has data mapping: %v", root.ModulesMapping)
+	}
+	if data.PipRepoName != "pip_ai_training" {
+		t.Fatalf("data PipRepoName = %q, want pip_ai_training", data.PipRepoName)
+	}
+	if data.ModulesMapping["pyspark"] != "pyspark" {
+		t.Fatalf("data pyspark mapping = %q, want pyspark", data.ModulesMapping["pyspark"])
 	}
 }

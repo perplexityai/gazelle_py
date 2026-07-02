@@ -156,6 +156,7 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 	case directiveLabelConvention:
 		if val != "" {
 			cfg.pipLinkPattern = val
+			cfg.pipLinkPatternExplicit = true
 		}
 	case directiveManifest:
 		if val != "" {

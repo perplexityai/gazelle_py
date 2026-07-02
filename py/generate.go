@@ -71,16 +71,15 @@ func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResu
 		specs = pythonFileSpecs(cfg, args.Dir, args.Rel, args.RegularFiles)
 	}
 
-	results, allComments := l.parseSpecs(specs)
-	annot := parseAnnotations(allComments)
+	results := l.parseSpecs(specs)
 
 	switch cfg.generationMode {
 	case generationModeFile:
-		return generatePerFileRules(cfg, args.Rel, specs, results, annot)
+		return generatePerFileRules(cfg, args.Rel, specs, results)
 	case generationModeProject:
-		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, annot, args.File, false)
+		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, args.File, false)
 	default:
-		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, annot, args.File, true)
+		return generateAggregateRules(cfg, args.Config, args.Rel, specs, results, args.File, true)
 	}
 }
 
@@ -148,26 +147,19 @@ func hasBuildFile(dir string) bool {
 }
 
 // parseSpecs runs the import extractor over `specs` and returns the parsed
-// results keyed by RelPath plus a flat list of every comment encountered
-// (used by parseAnnotations for `# gazelle:ignore` / `# gazelle:include_dep`).
-func (l *pyLang) parseSpecs(specs []FileSpec) (map[string]FileImports, []string) {
+// results keyed by RelPath.
+func (l *pyLang) parseSpecs(specs []FileSpec) map[string]FileImports {
 	if len(specs) == 0 {
-		return nil, nil
+		return nil
 	}
 	results, err := l.extractImportsBatch(specs)
 	if err != nil {
 		// We don't fail the whole gazelle run on a parser error — we just
 		// drop this directory's imports. The next run picks them up after
 		// the user fixes whatever made the parser unhappy.
-		return nil, nil
+		return nil
 	}
-	var allComments []string
-	for _, s := range specs {
-		if r, ok := results[s.RelPath]; ok {
-			allComments = append(allComments, r.Comments...)
-		}
-	}
-	return results, allComments
+	return results
 }
 
 // generateAggregateRules emits one library + one test rule covering every
@@ -178,7 +170,7 @@ func (l *pyLang) parseSpecs(specs []FileSpec) (map[string]FileImports, []string)
 // is extracted into a dedicated `py_library` named `conftest` with
 // `testonly=True`, mirroring rules_python's gazelle plugin. Tests pick it up
 // transitively through the ancestor-conftest synthesis in resolve.go.
-func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, annot annotations, file *rule.File, manageHandRolled bool) language.GenerateResult {
+func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, file *rule.File, manageHandRolled bool) language.GenerateResult {
 	libName, testName := resolveRuleNames(cfg, rel)
 	managed := map[string]bool{
 		libName:            true,
@@ -226,10 +218,6 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	skipLib := cfg.skipEmptyInit && allEmptyInits(libSrcs, specs, rel, results)
 	skipTest := cfg.skipEmptyInit && allEmptyInits(testSrcs, specs, rel, results)
 
-	if (len(libSrcs) == 0 || skipLib) && (len(testSrcs) == 0 || skipTest) && !hasConftest {
-		return language.GenerateResult{}
-	}
-
 	var genRules []*rule.Rule
 	var genImports []interface{}
 
@@ -240,6 +228,7 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 			r.SetAttr("visibility", cfg.visibility)
 		}
 		genRules = append(genRules, r)
+		annot := annotationsForSrcs(rel, libSrcs, results)
 		genImports = append(genImports, ImportData{
 			Imports:     sourceImports,
 			Ignore:      annot.ignore,
@@ -255,6 +244,7 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 			r.SetAttr("visibility", cfg.visibility)
 		}
 		genRules = append(genRules, r)
+		annot := annotationsForSrcs(rel, []string{conftestFilename}, results)
 		genImports = append(genImports, ImportData{
 			Imports:     conftestImports,
 			Ignore:      annot.ignore,
@@ -266,6 +256,7 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 		r := rule.NewRule(cfg.testKind, testName)
 		r.SetAttr("srcs", testSrcs)
 		genRules = append(genRules, r)
+		annot := annotationsForSrcs(rel, testSrcs, results)
 		genImports = append(genImports, ImportData{
 			TestImports: testImports,
 			Ignore:      annot.ignore,
@@ -274,9 +265,13 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	}
 
 	if manageHandRolled {
-		extraRules, extraImports := generateHandRolledRules(cfg, c, rel, specs, results, annot, file, managed)
+		extraRules, extraImports := generateHandRolledRules(cfg, c, rel, specs, results, file, managed)
 		genRules = append(genRules, extraRules...)
 		genImports = append(genImports, extraImports...)
+	}
+
+	if len(genRules) == 0 {
+		return language.GenerateResult{}
 	}
 
 	return language.GenerateResult{
@@ -314,7 +309,7 @@ func handOwnedPythonSources(cfg *pyConfig, c *config.Config, rel string, specs [
 	return owned
 }
 
-func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, annot annotations, file *rule.File, managed map[string]bool) ([]*rule.Rule, []interface{}) {
+func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, file *rule.File, managed map[string]bool) ([]*rule.Rule, []interface{}) {
 	if file == nil {
 		return nil, nil
 	}
@@ -343,6 +338,7 @@ func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs 
 		if !ok {
 			continue
 		}
+		annot := annotationsForSrcs(rel, srcs, results)
 		kind := cfg.libraryKind
 		data := ImportData{Imports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
 		if isTest {
@@ -392,10 +388,33 @@ func importsForSrcs(rel string, srcs []string, results map[string]FileImports) (
 	return imps, true
 }
 
+func annotationsForSrcs(rel string, srcs []string, results map[string]FileImports) annotations {
+	annot := annotations{ignore: map[string]bool{}}
+	seenDeps := map[string]bool{}
+	for _, src := range srcs {
+		r, ok := results[filepath.Join(rel, src)]
+		if !ok {
+			continue
+		}
+		srcAnnot := parseAnnotations(r.Comments)
+		for module := range srcAnnot.ignore {
+			annot.ignore[module] = true
+		}
+		for _, dep := range srcAnnot.includeDep {
+			if seenDeps[dep] {
+				continue
+			}
+			seenDeps[dep] = true
+			annot.includeDep = append(annot.includeDep, dep)
+		}
+	}
+	return annot
+}
+
 // generatePerFileRules emits one rule per source file: a library rule named
 // after the file (e.g. `helpers.py` → `helpers`) for non-test files, and the
 // configured test kind for test files. Selected by `python_generation_mode file`.
-func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results map[string]FileImports, annot annotations) language.GenerateResult {
+func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results map[string]FileImports) language.GenerateResult {
 	// Sort by the in-package relative path so emitted rules are stable.
 	sortedSpecs := append([]FileSpec(nil), specs...)
 	sort.Slice(sortedSpecs, func(i, j int) bool {
@@ -436,6 +455,7 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 		if pr, ok := results[s.RelPath]; ok {
 			imports = pr.Modules
 		}
+		annot := annotationsForSrcs(rel, []string{srcName}, results)
 		genImports = append(genImports, ImportData{
 			Imports:     imports,
 			Ignore:      annot.ignore,
@@ -467,6 +487,7 @@ func generatePerFileRules(cfg *pyConfig, rel string, specs []FileSpec, results m
 		if pr, ok := results[s.RelPath]; ok {
 			testMods = pr.Modules
 		}
+		annot := annotationsForSrcs(rel, []string{srcName}, results)
 		genImports = append(genImports, ImportData{
 			TestImports: testMods,
 			Ignore:      annot.ignore,
@@ -520,7 +541,7 @@ func isConftestAtPackageRoot(srcName string) bool {
 }
 
 // allEmptyInits reports whether every entry in `srcs` is an `__init__.py`
-// whose parsed AST has no top-level statements. Empty `srcs` returns
+// whose parsed AST has no top-level code. Empty `srcs` returns
 // false — there's nothing to be "all empty inits" about. Emptiness is
 // supplied by the rust import_extractor (FileImports.IsEmpty); a file
 // missing from `results` is treated as non-empty so we never accidentally

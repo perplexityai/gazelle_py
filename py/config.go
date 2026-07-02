@@ -84,6 +84,10 @@ type pyConfig struct {
 	// `@pip//{pkg}`. The literal `{pkg}` is replaced with the resolved
 	// distribution name (lowercased, hyphens → underscores).
 	pipLinkPattern string
+	// pipLinkPatternExplicit records whether the user set
+	// python_label_convention. When true, the configured pattern controls the
+	// emitted pip repo even if the manifest was generated for another repo.
+	pipLinkPatternExplicit bool
 
 	// manifestPath is the workspace-relative path to a gazelle_python.yaml
 	// file (the same format rules_python_gazelle_plugin reads). Empty means
@@ -126,9 +130,9 @@ type pyConfig struct {
 	projectRoot string
 
 	// skipEmptyInit, when true, prevents emitting a library rule when every
-	// source in the rule is an empty (or comments-only) `__init__.py`. Covers
-	// both single-file packages and project-mode rollups of nested empty
-	// inits. Mirrors rules_python's `python_skip_empty_init`.
+	// source in the rule is an empty, comments-only, or docstring-only
+	// `__init__.py`. Covers both single-file packages and project-mode rollups
+	// of nested empty inits. Mirrors rules_python's `python_skip_empty_init`.
 	skipEmptyInit bool
 }
 

@@ -1,0 +1,2 @@
+# gazelle:map_kind py_library pplx_python_library //tools/rules:defs.bzl
+# gazelle:python_skip_empty_init true

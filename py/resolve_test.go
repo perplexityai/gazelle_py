@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
 func TestNormalizeDist_SnakeCase(t *testing.T) {
@@ -70,6 +72,21 @@ func TestPipLabel(t *testing.T) {
 		if got != c.want {
 			t.Errorf("pipLabel(%q, %q) = %q, want %q", c.pattern, c.dist, got, c.want)
 		}
+	}
+}
+
+func TestEffectivePipRepo_LabelConventionOverridesManifestRepo(t *testing.T) {
+	manifest := &manifestData{PipRepoName: "pip"}
+
+	defaultCfg := newPyConfig()
+	if got := effectivePipRepo(defaultCfg, manifest); got != "pip" {
+		t.Fatalf("default effectivePipRepo = %q, want manifest repo pip", got)
+	}
+
+	customCfg := newPyConfig()
+	applyDirective(customCfg, rule.Directive{Key: directiveLabelConvention, Value: "@custom_pip//{pkg}"}, "")
+	if got := effectivePipRepo(customCfg, manifest); got != "custom_pip" {
+		t.Fatalf("custom effectivePipRepo = %q, want custom_pip", got)
 	}
 }
 
@@ -180,6 +197,14 @@ func TestModuleCandidates_PlainImportWalksParents(t *testing.T) {
 	want := []string{"pkg.sub.module", "pkg.sub", "pkg"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("moduleCandidates() = %v, want %v", got, want)
+	}
+}
+
+func TestPipManifestCandidates_FromImportWalksParents(t *testing.T) {
+	got := pipManifestCandidates("rich.console.Console")
+	want := []string{"rich.console.Console", "rich.console", "rich"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("pipManifestCandidates() = %v, want %v", got, want)
 	}
 }
 

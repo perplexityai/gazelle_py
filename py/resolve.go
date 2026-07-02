@@ -111,7 +111,7 @@ func (l *pyLang) resolveImports(
 	cfg *pyConfig,
 ) []string {
 	manifest := loadManifestOnce(filepath.Join(c.RepoRoot, cfg.manifestPath))
-	pipRepo := manifest.PipRepoName
+	pipRepo := effectivePipRepo(cfg, manifest)
 
 	seen := map[string]bool{}
 	out := []string{}
@@ -150,6 +150,13 @@ func (l *pyLang) resolveImports(
 
 	sort.Strings(out)
 	return out
+}
+
+func effectivePipRepo(cfg *pyConfig, manifest *manifestData) string {
+	if cfg.pipLinkPatternExplicit {
+		return parsePipRepo(cfg.pipLinkPattern)
+	}
+	return manifest.PipRepoName
 }
 
 // resolveOne implements the possible-modules loop for a single import. Returns
@@ -239,6 +246,26 @@ func (l *pyLang) resolveOne(
 		}
 	}
 
+	tried := map[string]bool{}
+	for _, try := range moduleCandidates(moduleName, fromPart) {
+		tried[try] = true
+	}
+	// The from-import bound above prevents broad first-party aggregate matches.
+	// Pip manifests are different: wheels commonly expose submodules while the
+	// manifest records only the import root, e.g. rich.console -> rich.
+	for _, try := range pipManifestCandidates(moduleName) {
+		if tried[try] {
+			continue
+		}
+		if dist, ok := manifest.ModulesMapping[try]; ok {
+			repoName := pipRepo
+			if repoName == "" {
+				repoName = parsePipRepo(cfg.pipLinkPattern)
+			}
+			return pipLabelForRepo(cfg.pipLinkPattern, repoName, normalizeDist(dist, cfg.labelNormalization))
+		}
+	}
+
 	// Nothing matched at any prefix. Optimistically emit a pip label for the
 	// top-level module name unless the user gave us a project-deps file that
 	// excludes it.
@@ -275,6 +302,10 @@ func moduleCandidates(moduleName string, fromPart string) []string {
 		candidates = append(candidates, strings.Join(parts[:i], "."))
 	}
 	return candidates
+}
+
+func pipManifestCandidates(moduleName string) []string {
+	return moduleCandidates(moduleName, "")
 }
 
 func setOrDelete(r *rule.Rule, attr string, values []string) {

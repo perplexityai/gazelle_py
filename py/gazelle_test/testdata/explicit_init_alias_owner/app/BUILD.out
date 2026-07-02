@@ -1,0 +1,8 @@
+load("//tools/rules:defs.bzl", "pplx_python_library")
+
+pplx_python_library(
+    name = "app",
+    srcs = ["app.py"],
+    visibility = ["//visibility:public"],
+    deps = ["//pkg/api:model_selection"],
+)

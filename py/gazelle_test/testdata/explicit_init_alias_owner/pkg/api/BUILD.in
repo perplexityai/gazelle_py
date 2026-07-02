@@ -1,0 +1,12 @@
+load("//tools/rules:defs.bzl", "pplx_python_library")
+
+pplx_python_library(
+    name = "model_selection",
+    srcs = ["__init__.py"],
+)
+
+pplx_python_library(
+    name = "api",
+    srcs = [],
+    deps = [":model_selection"],
+)

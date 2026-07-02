@@ -52,6 +52,9 @@ func TestApplyDirective_Strings(t *testing.T) {
 	if cfg.pipLinkPattern != "@my_pip//{pkg}" {
 		t.Errorf("pipLinkPattern = %q", cfg.pipLinkPattern)
 	}
+	if !cfg.pipLinkPatternExplicit {
+		t.Errorf("pipLinkPatternExplicit = false")
+	}
 }
 
 func TestApplyDirective_Visibility(t *testing.T) {
