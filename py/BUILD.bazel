@@ -26,6 +26,9 @@ go_library(
         "manifest.go",
         "parser.go",
         "resolve.go",
+        "rule_plan.go",
+        "source_facts.go",
+        "source_ownership.go",
         "sources.go",
         "stdlib.go",
     ],
@@ -64,6 +67,7 @@ go_test(
     name = "py_test",
     srcs = [
         "annotations_test.go",
+        "benchmark_test.go",
         "config_test.go",
         "generate_test.go",
         "imports_test.go",

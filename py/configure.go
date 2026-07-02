@@ -80,8 +80,7 @@ func (l *pyLang) KnownDirectives() []string {
 }
 
 // Configure builds the per-directory config by cloning the parent config and
-// applying any directives present in the current BUILD file. At the repo root
-// it also loads dep declarations for import resolution.
+// applying any directives present in the current BUILD file.
 func (l *pyLang) Configure(c *config.Config, rel string, f *rule.File) {
 	var cfg *pyConfig
 	if raw, ok := c.Exts[languageName]; ok {
@@ -97,10 +96,6 @@ func (l *pyLang) Configure(c *config.Config, rel string, f *rule.File) {
 	}
 
 	c.Exts[languageName] = cfg
-
-	if rel == "" {
-		l.loadProjectDeps(c.RepoRoot)
-	}
 }
 
 func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
@@ -191,6 +186,9 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 			cfg.projectRoot = rel
 		case "package", "":
 			cfg.generationMode = generationModePackage
+			cfg.projectRoot = ""
+		case "off":
+			cfg.generationMode = generationModeOff
 			cfg.projectRoot = ""
 		}
 	case directiveSkipEmptyInit:

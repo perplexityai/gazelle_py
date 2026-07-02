@@ -49,6 +49,8 @@ message PyResponseResult {
 message PyFileOutput {
   string file_name = 1;
   repeated PyModule modules = 2;
+  // Whole-line Gazelle annotation comments only, e.g. "# gazelle:ignore x".
+  // The Rust extractor filters out regular comments before crossing FFI.
   repeated string comments = 3;
   bool has_main = 4;
   // is_empty is true when the file's parsed AST contains no top-level code

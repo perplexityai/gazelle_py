@@ -45,6 +45,9 @@ const (
 	// directive, with sources rolled up across all subdirectories. Children
 	// inside the project tree skip rule generation entirely.
 	generationModeProject
+	// generationModeOff: do not emit Python rules in this package or inherited
+	// children until another python_generation_mode directive overrides it.
+	generationModeOff
 )
 
 // Default test-file patterns and source-file extensions. Patterns are matched
