@@ -10,7 +10,7 @@ type rulePlan struct {
 	imports ImportData
 }
 
-func generateResultFromPlans(plans []rulePlan) language.GenerateResult {
+func generateResultFromPlans(plans []rulePlan, cfg *pyConfig) language.GenerateResult {
 	if len(plans) == 0 {
 		return language.GenerateResult{}
 	}
@@ -19,7 +19,7 @@ func generateResultFromPlans(plans []rulePlan) language.GenerateResult {
 	genImports := make([]interface{}, 0, len(plans))
 	for _, plan := range plans {
 		genRules = append(genRules, plan.rule)
-		genImports = append(genImports, plan.imports)
+		genImports = append(genImports, withConfigSnapshot(plan.imports, cfg))
 	}
 	return language.GenerateResult{
 		Gen:     genRules,
@@ -27,12 +27,19 @@ func generateResultFromPlans(plans []rulePlan) language.GenerateResult {
 	}
 }
 
-func splitRulePlans(plans []rulePlan) ([]*rule.Rule, []interface{}) {
+func splitRulePlans(plans []rulePlan, cfg *pyConfig) ([]*rule.Rule, []interface{}) {
 	genRules := make([]*rule.Rule, 0, len(plans))
 	genImports := make([]interface{}, 0, len(plans))
 	for _, plan := range plans {
 		genRules = append(genRules, plan.rule)
-		genImports = append(genImports, plan.imports)
+		genImports = append(genImports, withConfigSnapshot(plan.imports, cfg))
 	}
 	return genRules, genImports
+}
+
+func withConfigSnapshot(data ImportData, cfg *pyConfig) ImportData {
+	if cfg != nil {
+		data.config = cfg.clone()
+	}
+	return data
 }

@@ -34,6 +34,7 @@ type ImportData struct {
 	IncludeDeps  []string          // labels to always add to deps
 	PreserveDeps bool              // keep existing deps when source analysis was incomplete
 	ExistingDeps []string          // deps already present on the merged target
+	config       *pyConfig         // package config snapshot captured before Gazelle's resolve phase
 }
 
 // GenerateRules walks a directory's files, partitions them into source vs.
@@ -295,7 +296,7 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 		plans = append(plans, extraPlans...)
 	}
 
-	return generateResultFromPlans(plans)
+	return generateResultFromPlans(plans, cfg)
 }
 
 func importDataForSources(facts *sourceFacts, srcs []string, isTest bool) ImportData {
@@ -350,7 +351,7 @@ func handOwnedPythonSources(cfg *pyConfig, c *config.Config, rel string, specs [
 }
 
 func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool) ([]*rule.Rule, []interface{}) {
-	return splitRulePlans(planHandRolledRules(cfg, c, rel, specs, facts, ownership, file, managed))
+	return splitRulePlans(planHandRolledRules(cfg, c, rel, specs, facts, ownership, file, managed), cfg)
 }
 
 func planHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool) []rulePlan {
@@ -520,7 +521,7 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 		})
 	}
 
-	return generateResultFromPlans(plans)
+	return generateResultFromPlans(plans, cfg)
 }
 
 // pkgRelativePath drops the package prefix from a workspace-relative path.

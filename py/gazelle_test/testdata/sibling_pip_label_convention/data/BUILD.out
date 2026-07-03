@@ -1,0 +1,2 @@
+# gazelle:python_manifest_file_name data/gazelle_python.yaml
+# gazelle:python_root

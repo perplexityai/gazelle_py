@@ -36,16 +36,19 @@ func (l *pyLang) Resolve(
 	rawImportData interface{},
 	from label.Label,
 ) {
-	cfg, _ := c.Exts[languageName].(*pyConfig)
-	if cfg == nil {
-		cfg = newPyConfig()
-	}
 	importData, ok := rawImportData.(ImportData)
 	if !ok {
 		return
 	}
 	if importData.PreserveDeps {
 		return
+	}
+	cfg := importData.config
+	if cfg == nil {
+		cfg, _ = c.Exts[languageName].(*pyConfig)
+	}
+	if cfg == nil {
+		cfg = newPyConfig()
 	}
 
 	switch r.Kind() {
