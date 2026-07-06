@@ -5,9 +5,9 @@ name: module-release
 #
 # Tag scheme: `vX.Y.Z`.
 #
-# The release uses bazel-contrib's reusable workflows, pinned by commit SHA.
-# BCR validates their builder IDs in the generated attestations, so local
-# vendored copies would fail the registry presubmit.
+# The release uses bazel-contrib's reusable workflows by tag. BCR validates
+# the workflow refs in the generated attestations, and bare SHAs fail SLSA
+# verification.
 #
 # Prerequisites for the BCR submission to succeed:
 #   1. A fork of github.com/bazelbuild/bazel-central-registry under the org
@@ -36,7 +36,7 @@ permissions:
 
 jobs:
   release:
-    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@af28703814cf26522cf5e44d219efece91293123 # v7.4.0
+    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.4.0
     with:
       release_files: gazelle_py-*.tar.gz
       prerelease: false
@@ -44,7 +44,7 @@ jobs:
 
   publish-to-bcr:
     needs: release
-    uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@0a23c53c2baffdaf2ce8dd23c2c0e45eb3b79093 # v1.2.0
+    uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v1.2.0
     with:
       tag_name: ${{ inputs.tag || github.ref_name }}
       registry_fork: perplexityai/bazel-central-registry
