@@ -319,7 +319,7 @@ func TestGenerateAggregateRules_SkipEmptyInitMixed(t *testing.T) {
 		"pkg/__init__.py": {IsEmpty: true},
 		"pkg/app.py":      {IsEmpty: false},
 	}
-	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil, false)
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule, got %d", len(res.Gen))
 	}
@@ -344,7 +344,7 @@ func TestGenerateAggregateRules_SkipEmptyInitProjectRollup(t *testing.T) {
 		"proj/__init__.py":     {IsEmpty: true},
 		"proj/sub/__init__.py": {IsEmpty: true},
 	}
-	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, nil, false)
 	if len(res.Gen) != 0 {
 		t.Errorf("want no rules when every rolled-up src is an empty __init__.py, got %d", len(res.Gen))
 	}
@@ -358,7 +358,7 @@ func TestGenerateAggregateRules_SkipEmptyInitOnly(t *testing.T) {
 	cfg.skipEmptyInit = true
 	specs := []FileSpec{{RelPath: "pkg/__init__.py"}}
 	results := map[string]FileImports{"pkg/__init__.py": {IsEmpty: true}}
-	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil, false)
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, nil, false)
 	if len(res.Gen) != 0 {
 		t.Errorf("want no rules, got %d", len(res.Gen))
 	}
@@ -376,7 +376,7 @@ func TestGenerateAggregateRules_SkipEmptyInitTestsOnly(t *testing.T) {
 	cfg.skipEmptyInit = true
 	specs := []FileSpec{{RelPath: "proj/tests/__init__.py"}}
 	results := map[string]FileImports{"proj/tests/__init__.py": {IsEmpty: true}}
-	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, nil, false)
 	if len(res.Gen) != 0 {
 		t.Errorf("want no rules when only test src is empty tests/__init__.py, got %d", len(res.Gen))
 	}
@@ -396,7 +396,7 @@ func TestGenerateAggregateRules_SkipEmptyInitTestsAlongsideLib(t *testing.T) {
 		"proj/app.py":            {IsEmpty: false},
 		"proj/tests/__init__.py": {IsEmpty: true},
 	}
-	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule (library only — empty tests/__init__.py suppressed), got %d", len(res.Gen))
 	}
@@ -424,7 +424,7 @@ func TestGenerateAggregateRules_SkipEmptyInitRealTestKept(t *testing.T) {
 		"proj/tests/__init__.py": {IsEmpty: true},
 		"proj/tests/test_app.py": {IsEmpty: false},
 	}
-	res := generateAggregateRules(cfg, nil, "proj", specs, results, annotations{}, nil, false)
+	res := generateAggregateRules(cfg, nil, "proj", specs, results, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule (test, real src present), got %d", len(res.Gen))
 	}
@@ -447,9 +447,38 @@ func TestGeneratePerFileRules_SkipEmptyInitTest(t *testing.T) {
 	cfg.testPatterns = append(cfg.testPatterns, "**/__init__.py")
 	specs := []FileSpec{{RelPath: "pkg/__init__.py"}}
 	results := map[string]FileImports{"pkg/__init__.py": {IsEmpty: true}}
-	res := generatePerFileRules(cfg, "pkg", specs, results, annotations{})
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, nil)
 	if len(res.Gen) != 0 {
 		t.Errorf("want no rules in file mode for empty __init__.py matched by test pattern, got %d", len(res.Gen))
+	}
+}
+
+func TestGeneratePerFileRules_ExistingDepsCarried(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "thread_safe_tokenizer",
+    srcs = ["thread_safe_tokenizer.py"],
+    deps = ["@pip//pplx_tokenizers"],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/thread_safe_tokenizer.py"}}
+	results := map[string]FileImports{"pkg/thread_safe_tokenizer.py": {}}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	if len(res.Imports) != 1 {
+		t.Fatalf("imports = %d, want 1", len(res.Imports))
+	}
+	data, ok := res.Imports[0].(ImportData)
+	if !ok {
+		t.Fatalf("imports[0] has type %T, want ImportData", res.Imports[0])
+	}
+	wantDeps := []string{"@pip//pplx_tokenizers"}
+	if !reflect.DeepEqual(data.ExistingDeps, wantDeps) {
+		t.Fatalf("ExistingDeps = %v, want %v", data.ExistingDeps, wantDeps)
 	}
 }
 
@@ -460,12 +489,64 @@ func TestGenerateAggregateRules_SkipEmptyInitDirectiveOff(t *testing.T) {
 	cfg := newPyConfig() // skipEmptyInit defaults to false
 	specs := []FileSpec{{RelPath: "pkg/__init__.py"}}
 	results := map[string]FileImports{"pkg/__init__.py": {IsEmpty: true}}
-	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, nil, false)
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want 1 rule when directive off, got %d", len(res.Gen))
 	}
 	if got := snapshot(res.Gen[0]); !reflect.DeepEqual(got.srcs, []string{"__init__.py"}) {
 		t.Errorf("library srcs = %v, want [__init__.py]", got.srcs)
+	}
+}
+
+func TestGenerateAggregateRules_SourceAnnotationsStayWithOwningRule(t *testing.T) {
+	cfg := newPyConfig()
+	specs := []FileSpec{
+		{RelPath: "pkg/__init__.py"},
+		{RelPath: "pkg/test_common.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/__init__.py": {
+			Modules: []ImportStatement{{ImportPath: "pkg_init_dep", SourceFile: "pkg/__init__.py"}},
+		},
+		"pkg/test_common.py": {
+			Modules: []ImportStatement{{ImportPath: "pytest", SourceFile: "pkg/test_common.py"}},
+			Annotations: parseAnnotations([]string{
+				"# gazelle:ignore hidden_runtime",
+				"# gazelle:include_dep //manual:runtime",
+			}),
+		},
+	}
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, nil, false)
+
+	importsByName := map[string]ImportData{}
+	for i, r := range res.Gen {
+		data, ok := res.Imports[i].(ImportData)
+		if !ok {
+			t.Fatalf("imports[%d] has type %T, want ImportData", i, res.Imports[i])
+		}
+		importsByName[r.Name()] = data
+	}
+
+	libImports := importsByName["pkg"]
+	if !reflect.DeepEqual(libImports.Imports, results["pkg/__init__.py"].Modules) {
+		t.Errorf(":pkg Imports = %v, want %v", libImports.Imports, results["pkg/__init__.py"].Modules)
+	}
+	if len(libImports.IncludeDeps) != 0 {
+		t.Errorf(":pkg IncludeDeps = %v, want none", libImports.IncludeDeps)
+	}
+	if len(libImports.Ignore) != 0 {
+		t.Errorf(":pkg Ignore = %v, want none", libImports.Ignore)
+	}
+
+	testImports := importsByName["pkg_test"]
+	if !reflect.DeepEqual(testImports.TestImports, results["pkg/test_common.py"].Modules) {
+		t.Errorf(":pkg_test TestImports = %v, want %v", testImports.TestImports, results["pkg/test_common.py"].Modules)
+	}
+	if !reflect.DeepEqual(testImports.IncludeDeps, []string{"//manual:runtime"}) {
+		t.Errorf(":pkg_test IncludeDeps = %v, want [//manual:runtime]", testImports.IncludeDeps)
+	}
+	if !testImports.Ignore["hidden_runtime"] {
+		t.Errorf(":pkg_test did not receive source ignore annotation")
 	}
 }
 
@@ -499,7 +580,7 @@ func TestGenerateAggregateRules_ConftestExtracted(t *testing.T) {
 		{RelPath: "pkg/conftest.py"},
 		{RelPath: "pkg/app_test.py"},
 	}
-	res := generateAggregateRules(cfg, nil, "pkg", specs, nil, annotations{}, nil, false)
+	res := generateAggregateRules(cfg, nil, "pkg", specs, nil, nil, false)
 	if len(res.Gen) != 3 {
 		t.Fatalf("want 3 rules (lib, conftest, test), got %d", len(res.Gen))
 	}
@@ -536,6 +617,37 @@ func TestGenerateAggregateRules_ConftestExtracted(t *testing.T) {
 	}
 }
 
+func TestGenerateAggregateRules_ConftestCarriesExistingDeps(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+py_library(
+    name = "conftest",
+    srcs = ["conftest.py"],
+    deps = ["@pip//pytest"],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/conftest.py"}}
+	results := map[string]FileImports{
+		"pkg/conftest.py": {
+			Modules: []ImportStatement{{ImportPath: "pytest", SourceFile: "pkg/conftest.py"}},
+		},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Imports) != 1 {
+		t.Fatalf("imports = %d, want 1", len(res.Imports))
+	}
+	data, ok := res.Imports[0].(ImportData)
+	if !ok {
+		t.Fatalf("imports[0] has type %T, want ImportData", res.Imports[0])
+	}
+	wantDeps := []string{"@pip//pytest"}
+	if !reflect.DeepEqual(data.ExistingDeps, wantDeps) {
+		t.Fatalf("ExistingDeps = %v, want %v", data.ExistingDeps, wantDeps)
+	}
+}
+
 // TestGenerateAggregateRules_ConftestOnly covers a directory whose only Python
 // file is conftest.py — we must still emit the :conftest rule (no main lib,
 // no test rule). Mirrors a `tests/` package that exists purely to host shared
@@ -543,7 +655,7 @@ func TestGenerateAggregateRules_ConftestExtracted(t *testing.T) {
 func TestGenerateAggregateRules_ConftestOnly(t *testing.T) {
 	cfg := newPyConfig()
 	specs := []FileSpec{{RelPath: "tests/conftest.py"}}
-	res := generateAggregateRules(cfg, nil, "tests", specs, nil, annotations{}, nil, false)
+	res := generateAggregateRules(cfg, nil, "tests", specs, nil, nil, false)
 	if len(res.Gen) != 1 {
 		t.Fatalf("want exactly 1 rule, got %d", len(res.Gen))
 	}
@@ -566,7 +678,7 @@ func TestGenerateAggregateRules_NestedConftestStays(t *testing.T) {
 		{RelPath: "pkg/app.py"},
 		{RelPath: "pkg/sub/conftest.py"},
 	}
-	res := generateAggregateRules(cfg, nil, "pkg", specs, nil, annotations{}, nil, false)
+	res := generateAggregateRules(cfg, nil, "pkg", specs, nil, nil, false)
 	for _, r := range res.Gen {
 		if r.Name() == "conftest" {
 			t.Errorf("nested conftest must not produce a :conftest rule at this level")
@@ -592,7 +704,7 @@ func TestGeneratePerFileRules_ConftestTestonly(t *testing.T) {
 		{RelPath: "pkg/app.py"},
 		{RelPath: "pkg/conftest.py"},
 	}
-	res := generatePerFileRules(cfg, "pkg", specs, nil, annotations{})
+	res := generatePerFileRules(cfg, nil, "pkg", specs, nil, nil)
 	var conf *ruleSnapshot
 	for _, r := range res.Gen {
 		if r.Name() == "conftest" {
@@ -620,7 +732,7 @@ py_library(
 	specs := []FileSpec{{RelPath: "pkg/models.py"}}
 	results := map[string]FileImports{"pkg/models.py": {}}
 
-	res := generateAggregateRules(cfg, nil, "pkg", specs, results, annotations{}, file, false)
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, false)
 
 	for _, r := range res.Gen {
 		if r.Name() == "models" {
@@ -657,7 +769,7 @@ py_library(
 		},
 	}
 
-	res := generateAggregateRules(cfg, nil, "pkg/sub", specs, results, annotations{}, file, true)
+	res := generateAggregateRules(cfg, nil, "pkg/sub", specs, results, file, true)
 
 	byName := map[string]*ruleSnapshot{}
 	importsByName := map[string]ImportData{}
@@ -682,6 +794,456 @@ py_library(
 	}
 	if !reflect.DeepEqual(importsByName["catch_all"].Imports, results["pkg/sub/worker.py"].Modules) {
 		t.Errorf(":catch_all imports = %v, want %v", importsByName["catch_all"].Imports, results["pkg/sub/worker.py"].Modules)
+	}
+}
+
+func TestGenerateAggregateRules_PreservesMappedManagedFilePatternAttrs(t *testing.T) {
+	cfg := newPyConfig()
+	c := &config.Config{KindMap: map[string]config.MappedKind{
+		defaultLibraryKind: {KindName: "pplx_python_library"},
+	}}
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:python_defs.bzl", "pplx_python_library")
+
+pplx_python_library(
+    name = "pkg",
+    file_patterns = ["*.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/__init__.py"},
+		{RelPath: "pkg/app.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/__init__.py": {},
+		"pkg/app.py": {
+			Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/app.py"}},
+		},
+	}
+
+	res := generateAggregateRules(cfg, c, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %d, want 1", len(res.Gen))
+	}
+	lib := res.Gen[0]
+	if lib.Name() != "pkg" {
+		t.Fatalf("generated rule = %s, want pkg", lib.Name())
+	}
+	if lib.Attr("srcs") != nil {
+		t.Fatalf("managed file_patterns rule generated srcs = %v, want attr omitted", lib.AttrStrings("srcs"))
+	}
+	data, ok := res.Imports[0].(ImportData)
+	if !ok {
+		t.Fatalf("imports[0] has type %T, want ImportData", res.Imports[0])
+	}
+	if !reflect.DeepEqual(data.Imports, results["pkg/app.py"].Modules) {
+		t.Errorf(":pkg imports = %v, want %v", data.Imports, results["pkg/app.py"].Modules)
+	}
+}
+
+func TestGenerateAggregateRules_PreservedFilePatternLibraryOwnsTestNamedSources(t *testing.T) {
+	cfg := newPyConfig()
+	c := &config.Config{KindMap: map[string]config.MappedKind{
+		defaultLibraryKind: {KindName: "pplx_python_library"},
+	}}
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:python_defs.bzl", "pplx_python_library")
+
+pplx_python_library(
+    name = "pkg",
+    file_patterns = ["*.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/app.py"},
+		{RelPath: "pkg/test_job.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/app.py": {
+			Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/app.py"}},
+		},
+		"pkg/test_job.py": {
+			Modules: []ImportStatement{{ImportPath: "fire", SourceFile: "pkg/test_job.py"}},
+		},
+	}
+
+	res := generateAggregateRules(cfg, c, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %d, want only preserved library", len(res.Gen))
+	}
+	lib := res.Gen[0]
+	if lib.Name() != "pkg" {
+		t.Fatalf("generated rule = %s, want pkg", lib.Name())
+	}
+	if lib.Attr("srcs") != nil {
+		t.Fatalf("managed file_patterns rule generated srcs = %v, want attr omitted", lib.AttrStrings("srcs"))
+	}
+	data, ok := res.Imports[0].(ImportData)
+	if !ok {
+		t.Fatalf("imports[0] has type %T, want ImportData", res.Imports[0])
+	}
+	wantImports := []ImportStatement{
+		{ImportPath: "requests", SourceFile: "pkg/app.py"},
+		{ImportPath: "fire", SourceFile: "pkg/test_job.py"},
+	}
+	if !reflect.DeepEqual(data.Imports, wantImports) {
+		t.Errorf(":pkg imports = %v, want %v", data.Imports, wantImports)
+	}
+}
+
+func TestGenerateAggregateRules_MixedSrcsAndFilePatternsUseExistingSrcs(t *testing.T) {
+	cfg := newPyConfig()
+	c := &config.Config{KindMap: map[string]config.MappedKind{
+		defaultLibraryKind: {KindName: "pplx_python_library"},
+	}}
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:python_defs.bzl", "pplx_python_library")
+
+pplx_python_library(
+    name = "pkg",
+    srcs = ["app.py"],
+    file_patterns = ["*.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/app.py"},
+		{RelPath: "pkg/extra.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/app.py": {
+			Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/app.py"}},
+		},
+		"pkg/extra.py": {
+			Modules: []ImportStatement{{ImportPath: "numpy", SourceFile: "pkg/extra.py"}},
+		},
+	}
+
+	res := generateAggregateRules(cfg, c, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %d, want 1", len(res.Gen))
+	}
+	lib := res.Gen[0]
+	if !reflect.DeepEqual(lib.AttrStrings("srcs"), []string{"app.py"}) {
+		t.Fatalf("managed mixed source rule generated srcs = %v, want [app.py]", lib.AttrStrings("srcs"))
+	}
+	data, ok := res.Imports[0].(ImportData)
+	if !ok {
+		t.Fatalf("imports[0] has type %T, want ImportData", res.Imports[0])
+	}
+	if !reflect.DeepEqual(data.Imports, results["pkg/app.py"].Modules) {
+		t.Errorf(":pkg imports = %v, want only app.py imports %v", data.Imports, results["pkg/app.py"].Modules)
+	}
+}
+
+func TestGenerateAggregateRules_ExplicitSrcsWithUnavailableSourcePreservesDeps(t *testing.T) {
+	cfg := newPyConfig()
+	c := &config.Config{KindMap: map[string]config.MappedKind{
+		defaultLibraryKind: {KindName: "pplx_python_library"},
+	}}
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:python_defs.bzl", "pplx_python_library")
+
+pplx_python_library(
+    name = "pkg",
+    srcs = [
+        "app.py",
+        "specialists/test_quality.py",
+    ],
+    deps = [
+        "//existing:dep",
+        "@pip//requests",
+    ],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/app.py"}}
+	results := map[string]FileImports{
+		"pkg/app.py": {
+			Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/app.py"}},
+		},
+	}
+
+	res := generateAggregateRules(cfg, c, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %d, want 1", len(res.Gen))
+	}
+	lib := res.Gen[0]
+	wantSrcs := []string{"app.py", "specialists/test_quality.py"}
+	if !reflect.DeepEqual(lib.AttrStrings("srcs"), wantSrcs) {
+		t.Fatalf("generated srcs = %v, want %v", lib.AttrStrings("srcs"), wantSrcs)
+	}
+	wantDeps := []string{"//existing:dep", "@pip//requests"}
+	if !reflect.DeepEqual(lib.AttrStrings("deps"), wantDeps) {
+		t.Fatalf("generated deps = %v, want preserved %v", lib.AttrStrings("deps"), wantDeps)
+	}
+	data, ok := res.Imports[0].(ImportData)
+	if !ok {
+		t.Fatalf("imports[0] has type %T, want ImportData", res.Imports[0])
+	}
+	if !data.PreserveDeps {
+		t.Fatalf("PreserveDeps = false, want true for incomplete explicit source analysis")
+	}
+}
+
+func TestGenerateAggregateRules_CustomFilePatternTestOwnsSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:python_defs.bzl", "pplx_python_functional_test")
+
+pplx_python_functional_test(
+    name = "integration_test",
+    file_patterns = ["**/test_*.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/app.py"},
+		{RelPath: "pkg/test_app.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/app.py":      {},
+		"pkg/test_app.py": {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	for _, r := range res.Gen {
+		if r.Name() == "pkg_test" {
+			t.Fatalf("custom file-pattern test macro should own test_app.py; generated %s", r.Name())
+		}
+	}
+}
+
+func TestGenerateAggregateRules_TestPackageMacroOwnsPackageSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:python_defs.bzl", "pplx_python_test_package")
+
+pplx_python_test_package(
+    name = "pkg",
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/__init__.py"},
+		{RelPath: "pkg/test_app.py"},
+		{RelPath: "pkg/helpers.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/__init__.py": {},
+		"pkg/test_app.py": {},
+		"pkg/helpers.py":  {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 0 {
+		t.Fatalf("test package macro should own all package Python sources; got %v", ruleNames(res.Gen))
+	}
+}
+
+func TestGenerateAggregateRules_MappedPythonBinaryMainStaysInLibrary(t *testing.T) {
+	cfg := newPyConfig()
+	c := &config.Config{KindMap: map[string]config.MappedKind{
+		"py_binary": {KindName: "pplx_python_binary"},
+	}}
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:python_defs.bzl", "pplx_python_binary")
+
+pplx_python_binary(
+    name = "tool",
+    main = "tool.py",
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/tool.py"}}
+	results := map[string]FileImports{"pkg/tool.py": {}}
+
+	res := generateAggregateRules(cfg, c, "pkg", specs, results, file, true)
+
+	var lib *rule.Rule
+	for _, r := range res.Gen {
+		if r.Name() == "pkg" {
+			lib = r
+			break
+		}
+	}
+	if lib == nil {
+		t.Fatalf("missing generated package library; got %v", ruleNames(res.Gen))
+	}
+	if srcs := lib.AttrStrings("srcs"); !reflect.DeepEqual(srcs, []string{"tool.py"}) {
+		t.Fatalf("package library srcs = %v, want [tool.py]", srcs)
+	}
+}
+
+func TestGenerateAggregateRules_FilegroupGlobOwnsResourceSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+filegroup(
+    name = "all_files",
+    srcs = glob(["**"]),
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/payload.py"},
+		{RelPath: "pkg/test_payload.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/payload.py":      {},
+		"pkg/test_payload.py": {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 0 {
+		t.Fatalf("filegroup resources should own matching Python sources; got %v", ruleNames(res.Gen))
+	}
+}
+
+func TestGenerateAggregateRules_FilegroupGlobExcludesDoNotOwnSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+filegroup(
+    name = "all_files",
+    srcs = glob(["**"], exclude = ["**/test_*.py"]),
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/payload.py"},
+		{RelPath: "pkg/test_payload.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/payload.py":      {},
+		"pkg/test_payload.py": {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	byName := map[string]*ruleSnapshot{}
+	for _, r := range res.Gen {
+		byName[r.Name()] = snapshot(r)
+	}
+	if byName["pkg"] != nil {
+		t.Fatalf("filegroup should own non-test payload.py; generated library %v", byName["pkg"])
+	}
+	test := byName["pkg_test"]
+	if test == nil {
+		t.Fatalf("test_payload.py is excluded from filegroup and should generate pkg_test; got %v", keys(byName))
+	}
+	if !reflect.DeepEqual(test.srcs, []string{"test_payload.py"}) {
+		t.Errorf("pkg_test srcs = %v, want [test_payload.py]", test.srcs)
+	}
+}
+
+func TestGenerateAggregateRules_FilePatternExcludesResourceSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "pkg",
+    file_patterns = ["**/*.py"],
+)
+
+filegroup(
+    name = "payload",
+    srcs = ["payload.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/app.py"},
+		{RelPath: "pkg/payload.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/app.py": {
+			Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/app.py"}},
+		},
+		"pkg/payload.py": {
+			Modules: []ImportStatement{{ImportPath: "payload_runtime", SourceFile: "pkg/payload.py"}},
+		},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %d, want only managed package library", len(res.Gen))
+	}
+	lib := res.Gen[0]
+	if lib.Name() != "pkg" {
+		t.Fatalf("generated rule = %s, want pkg", lib.Name())
+	}
+	if lib.Attr("srcs") != nil {
+		t.Fatalf("managed file_patterns rule generated srcs = %v, want attr omitted", lib.AttrStrings("srcs"))
+	}
+	data, ok := res.Imports[0].(ImportData)
+	if !ok {
+		t.Fatalf("imports[0] has type %T, want ImportData", res.Imports[0])
+	}
+	if !reflect.DeepEqual(data.Imports, results["pkg/app.py"].Modules) {
+		t.Errorf(":pkg imports = %v, want only app.py imports %v", data.Imports, results["pkg/app.py"].Modules)
+	}
+}
+
+func TestGenerateAggregateRules_ExplicitSiblingFileTargetsOwnTheirSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg/sources", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "base",
+    srcs = ["base.py"],
+)
+
+py_library(
+    name = "huggingface",
+    srcs = ["huggingface.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/sources/__init__.py"},
+		{RelPath: "pkg/sources/base.py"},
+		{RelPath: "pkg/sources/huggingface.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/sources/__init__.py": {
+			Modules: []ImportStatement{{ImportPath: "pkg.sources.base", SourceFile: "pkg/sources/__init__.py"}},
+		},
+		"pkg/sources/base.py": {
+			Modules: []ImportStatement{{ImportPath: "pyspark", SourceFile: "pkg/sources/base.py"}},
+		},
+		"pkg/sources/huggingface.py": {
+			Modules: []ImportStatement{{ImportPath: "huggingface_hub", SourceFile: "pkg/sources/huggingface.py"}},
+		},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg/sources", specs, results, file, true)
+
+	byName := map[string]*ruleSnapshot{}
+	importsByName := map[string]ImportData{}
+	for i, r := range res.Gen {
+		byName[r.Name()] = snapshot(r)
+		data, ok := res.Imports[i].(ImportData)
+		if !ok {
+			t.Fatalf("imports[%d] has type %T, want ImportData", i, res.Imports[i])
+		}
+		importsByName[r.Name()] = data
+	}
+
+	sources := byName["sources"]
+	if sources == nil {
+		t.Fatalf("missing generated :sources rule; have %v", keys(byName))
+	}
+	if !reflect.DeepEqual(sources.srcs, []string{"__init__.py"}) {
+		t.Errorf(":sources srcs = %v, want [__init__.py]", sources.srcs)
+	}
+	if !reflect.DeepEqual(importsByName["sources"].Imports, results["pkg/sources/__init__.py"].Modules) {
+		t.Errorf(":sources imports = %v, want %v", importsByName["sources"].Imports, results["pkg/sources/__init__.py"].Modules)
+	}
+	if !reflect.DeepEqual(importsByName["base"].Imports, results["pkg/sources/base.py"].Modules) {
+		t.Errorf(":base imports = %v, want %v", importsByName["base"].Imports, results["pkg/sources/base.py"].Modules)
+	}
+	if !reflect.DeepEqual(importsByName["huggingface"].Imports, results["pkg/sources/huggingface.py"].Modules) {
+		t.Errorf(":huggingface imports = %v, want %v", importsByName["huggingface"].Imports, results["pkg/sources/huggingface.py"].Modules)
 	}
 }
 
@@ -725,17 +1287,17 @@ filegroup(
 		},
 		"pkg/models.py": {
 			Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/models.py"}},
+			Annotations: parseAnnotations([]string{
+				"# gazelle:ignore ignored",
+				"# gazelle:include_dep //manual:runtime",
+			}),
 		},
 		"pkg/models_test.py": {
 			Modules: []ImportStatement{{ImportPath: "pytest", SourceFile: "pkg/models_test.py"}},
 		},
 	}
-	annot := annotations{
-		ignore:     map[string]bool{"ignored": true},
-		includeDep: []string{"//manual:runtime"},
-	}
 
-	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg", nil, results, annot, file, map[string]bool{
+	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg", nil, newSourceFacts("pkg", nil, results), nil, file, map[string]bool{
 		"pkg":      true,
 		"pkg_test": true,
 		"conftest": true,
@@ -800,6 +1362,12 @@ filegroup(
 	if len(testImports.Imports) != 0 {
 		t.Errorf(":models_test Imports = %v, want none", testImports.Imports)
 	}
+	if len(testImports.IncludeDeps) != 0 {
+		t.Errorf(":models_test IncludeDeps = %v, want none", testImports.IncludeDeps)
+	}
+	if len(testImports.Ignore) != 0 {
+		t.Errorf(":models_test Ignore = %v, want none", testImports.Ignore)
+	}
 
 	for _, unexpected := range []string{"pkg", "excluded", "empty", "data"} {
 		if byName[unexpected] != nil {
@@ -836,7 +1404,7 @@ py_library(
 		},
 	}
 
-	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg/sub", specs, results, annotations{}, file, nil)
+	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg/sub", specs, newSourceFacts("pkg/sub", specs, results), nil, file, nil)
 
 	importsByName := map[string]ImportData{}
 	for i, r := range genRules {
@@ -911,7 +1479,7 @@ load("//tools:python_defs.bzl", "pplx_final_python_library", "pplx_final_python_
 `, tc.libKind, tc.testKind))
 			c := &config.Config{KindMap: tc.kindMap}
 
-			genRules, _ := generateHandRolledRules(cfg, c, "pkg", nil, results, annotations{}, file, nil)
+			genRules, _ := generateHandRolledRules(cfg, c, "pkg", nil, newSourceFacts("pkg", nil, results), nil, file, nil)
 
 			if len(genRules) != 2 {
 				t.Fatalf("want 2 hand-rolled rules, got %d", len(genRules))
@@ -962,6 +1530,14 @@ func keys(m map[string]*ruleSnapshot) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
+	}
+	return out
+}
+
+func ruleNames(rules []*rule.Rule) []string {
+	out := make([]string, 0, len(rules))
+	for _, r := range rules {
+		out = append(out, r.Name())
 	}
 	return out
 }

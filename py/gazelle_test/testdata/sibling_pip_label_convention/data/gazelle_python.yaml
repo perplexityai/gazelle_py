@@ -1,0 +1,5 @@
+manifest:
+  pip_repository:
+    name: pip_ai_training
+  modules_mapping:
+    requests: requests

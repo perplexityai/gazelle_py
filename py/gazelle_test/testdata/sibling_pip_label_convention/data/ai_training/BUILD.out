@@ -1,0 +1,10 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+# gazelle:python_label_convention @pip_ai_training//{pkg}
+
+py_library(
+    name = "ai_training",
+    srcs = ["job.py"],
+    visibility = ["//visibility:public"],
+    deps = ["@pip_ai_training//requests"],
+)

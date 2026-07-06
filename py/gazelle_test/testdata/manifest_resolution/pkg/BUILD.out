@@ -1,0 +1,11 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "pkg",
+    srcs = ["foo.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@custom_pip//google_api_core",
+        "@custom_pip//pillow",
+    ],
+)

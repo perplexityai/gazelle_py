@@ -1,0 +1,7 @@
+load("//tools/rules:defs.bzl", "pplx_python_library")
+
+pplx_python_library(
+    name = "app",
+    srcs = ["app.py"],
+    deps = ["//pkg/api"],
+)

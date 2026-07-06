@@ -36,18 +36,24 @@ func (l *pyLang) Resolve(
 	rawImportData interface{},
 	from label.Label,
 ) {
-	cfg, _ := c.Exts[languageName].(*pyConfig)
-	if cfg == nil {
-		cfg = newPyConfig()
-	}
 	importData, ok := rawImportData.(ImportData)
 	if !ok {
 		return
 	}
+	if importData.PreserveDeps {
+		return
+	}
+	cfg := importData.config
+	if cfg == nil {
+		cfg, _ = c.Exts[languageName].(*pyConfig)
+	}
+	if cfg == nil {
+		cfg = newPyConfig()
+	}
 
 	switch r.Kind() {
 	case cfg.libraryKind:
-		all := l.resolveImports(c, ix, importData, importData.Imports, from, cfg)
+		all := l.resolveImports(c, ix, importData, importData.Imports, from, cfg, existingDepsForResolve(importData, r))
 		all = append(all, importData.IncludeDeps...)
 		setOrDelete(r, "deps", all)
 
@@ -63,14 +69,21 @@ func (l *pyLang) Resolve(
 		// The normal possible-modules loop then resolves it to whatever
 		// `:conftest` library target indexes that path; if no such target
 		// exists, the import is silently dropped.
-		for _, syn := range conftestImportsFor(c.RepoRoot, from.Pkg) {
+		for _, syn := range l.cachedConftestImportsFor(c.RepoRoot, from.Pkg) {
 			modules = append(modules, syn)
 		}
 
-		all := l.resolveImports(c, ix, importData, modules, from, cfg)
+		all := l.resolveImports(c, ix, importData, modules, from, cfg, existingDepsForResolve(importData, r))
 		all = append(all, importData.IncludeDeps...)
 		setOrDelete(r, "deps", all)
 	}
+}
+
+func existingDepsForResolve(importData ImportData, r *rule.Rule) []string {
+	if len(importData.ExistingDeps) > 0 {
+		return importData.ExistingDeps
+	}
+	return r.AttrStrings("deps")
 }
 
 // conftestImportsFor walks up from `pkg` (workspace-relative) to the repo root
@@ -100,6 +113,33 @@ func conftestImportsFor(repoRoot, pkg string) []ImportStatement {
 	return out
 }
 
+type conftestCacheKey struct {
+	repoRoot string
+	pkg      string
+}
+
+func (l *pyLang) cachedConftestImportsFor(repoRoot, pkg string) []ImportStatement {
+	key := conftestCacheKey{repoRoot: repoRoot, pkg: pkg}
+
+	l.conftestMu.Lock()
+	if l.conftestCache == nil {
+		l.conftestCache = map[conftestCacheKey][]ImportStatement{}
+	}
+	if imports, ok := l.conftestCache[key]; ok {
+		l.conftestMu.Unlock()
+		return append([]ImportStatement(nil), imports...)
+	}
+	l.conftestMu.Unlock()
+
+	imports := conftestImportsFor(repoRoot, pkg)
+
+	l.conftestMu.Lock()
+	l.conftestCache[key] = append([]ImportStatement(nil), imports...)
+	l.conftestMu.Unlock()
+
+	return imports
+}
+
 // resolveImports walks each import through the possible-modules loop and
 // returns a flat, sorted, deduped dep list.
 func (l *pyLang) resolveImports(
@@ -109,14 +149,14 @@ func (l *pyLang) resolveImports(
 	imports []ImportStatement,
 	from label.Label,
 	cfg *pyConfig,
+	existingDeps []string,
 ) []string {
-	manifest := loadManifestOnce(filepath.Join(c.RepoRoot, cfg.manifestPath))
-	pipRepo := manifest.PipRepoName
+	ctx := newResolverContext(l, c, ix, from, cfg, existingDeps)
 
 	seen := map[string]bool{}
 	out := []string{}
 
-	for _, imp := range imports {
+	for _, imp := range dedupeImportStatements(imports) {
 		path := imp.ImportPath
 		if path == "" || strings.HasPrefix(path, ".") {
 			continue
@@ -137,10 +177,18 @@ func (l *pyLang) resolveImports(
 			continue
 		}
 
-		dep := l.resolveOne(c, ix, from, path, imp.From, cfg, manifest, pipRepo)
+		dep := ctx.resolveOne(path, imp.From)
 		if dep == "" {
 			continue
 		}
+		ctx.markResolvedDep(dep)
+		if seen[dep] {
+			continue
+		}
+		seen[dep] = true
+		out = append(out, dep)
+	}
+	for _, dep := range ctx.preservedExistingPipDeps() {
 		if seen[dep] {
 			continue
 		}
@@ -152,82 +200,149 @@ func (l *pyLang) resolveImports(
 	return out
 }
 
+type resolverContext struct {
+	c               *config.Config
+	ix              *resolve.RuleIndex
+	from            label.Label
+	cfg             *pyConfig
+	manifest        *manifestData
+	pipRepo         string
+	packageDeps     map[string]bool
+	existingPipDeps map[string][]string
+	usedPipDists    map[string]bool
+	memo            map[resolveLookupKey]string
+}
+
+type resolveLookupKey struct {
+	moduleName string
+	fromPart   string
+}
+
+type importDedupeKey struct {
+	importPath       string
+	from             string
+	sourceIsConftest bool
+}
+
+func newResolverContext(l *pyLang, c *config.Config, ix *resolve.RuleIndex, from label.Label, cfg *pyConfig, deps []string) *resolverContext {
+	manifest := loadManifestOnce(filepath.Join(c.RepoRoot, cfg.manifestPath))
+	return &resolverContext{
+		c:               c,
+		ix:              ix,
+		from:            from,
+		cfg:             cfg,
+		manifest:        manifest,
+		pipRepo:         effectivePipRepo(cfg, manifest),
+		packageDeps:     l.projectDeps(c.RepoRoot, cfg),
+		existingPipDeps: existingPipDepsByDist(deps),
+		usedPipDists:    map[string]bool{},
+		memo:            map[resolveLookupKey]string{},
+	}
+}
+
+func dedupeImportStatements(imports []ImportStatement) []ImportStatement {
+	seen := map[importDedupeKey]bool{}
+	out := make([]ImportStatement, 0, len(imports))
+	for _, imp := range imports {
+		key := importDedupeKey{
+			importPath:       imp.ImportPath,
+			from:             imp.From,
+			sourceIsConftest: strings.HasSuffix(imp.SourceFile, "conftest.py"),
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, imp)
+	}
+	return out
+}
+
+func effectivePipRepo(cfg *pyConfig, manifest *manifestData) string {
+	if cfg.pipLinkPatternExplicit {
+		return parsePipRepo(cfg.pipLinkPattern)
+	}
+	return manifest.PipRepoName
+}
+
 // resolveOne implements the possible-modules loop for a single import. Returns
 // the resolved dep label, or "" if no resolution applies (stdlib, self-import,
 // or a missing third-party package not declared in pyproject/manifest).
-func (l *pyLang) resolveOne(
-	c *config.Config,
-	ix *resolve.RuleIndex,
-	from label.Label,
-	moduleName string,
-	fromPart string,
-	cfg *pyConfig,
-	manifest *manifestData,
-	pipRepo string,
-) string {
+func (ctx *resolverContext) resolveOne(moduleName string, fromPart string) string {
+	key := resolveLookupKey{moduleName: moduleName, fromPart: fromPart}
+	if dep, ok := ctx.memo[key]; ok {
+		return dep
+	}
+
+	dep := ctx.resolveOneUncached(moduleName, fromPart)
+	ctx.memo[key] = dep
+	return dep
+}
+
+func (ctx *resolverContext) resolveOneUncached(moduleName string, fromPart string) string {
 	for _, try := range moduleCandidates(moduleName, fromPart) {
 		// 1. gazelle:resolve directive — explicit user override.
 		spec := resolve.ImportSpec{Lang: languageName, Imp: try}
-		if dep, ok := resolve.FindRuleWithOverride(c, spec, languageName); ok {
-			lbl := dep.Rel(from.Repo, from.Pkg).String()
-			if lbl == ":"+from.Name {
+		if dep, ok := resolve.FindRuleWithOverride(ctx.c, spec, languageName); ok {
+			lbl := dep.Rel(ctx.from.Repo, ctx.from.Pkg).String()
+			if lbl == ":"+ctx.from.Name {
 				return ""
 			}
 			return lbl
 		}
 
 		// 2. Pip manifest (gazelle_python.yaml).
-		if dist, ok := manifest.ModulesMapping[try]; ok {
-			repoName := pipRepo
-			if repoName == "" {
-				repoName = parsePipRepo(cfg.pipLinkPattern)
+		if dist, ok := ctx.manifest.ModulesMapping[try]; ok {
+			distName := normalizeDist(dist, ctx.cfg.labelNormalization)
+			if dep := ctx.existingPipDepForDist(distName); dep != "" {
+				return dep
 			}
-			return pipLabelForRepo(cfg.pipLinkPattern, repoName, normalizeDist(dist, cfg.labelNormalization))
+			return ctx.pipLabelForDist(distName)
 		}
 
 		// 3. First-party rule index — exact match.
-		if hits := ix.FindRulesByImportWithConfig(c, spec, languageName); len(hits) > 0 {
-			if hits[0].IsSelfImport(from) {
+		if hits := ctx.ix.FindRulesByImportWithConfig(ctx.c, spec, languageName); len(hits) > 0 {
+			if hits[0].IsSelfImport(ctx.from) {
 				return ""
 			}
-			return hits[0].Label.Rel(from.Repo, from.Pkg).String()
+			return hits[0].Label.Rel(ctx.from.Repo, ctx.from.Pkg).String()
 		}
 
 		// 3b. First-party wildcard (e.g. `pkg.*` for "anything under pkg").
 		wild := resolve.ImportSpec{Lang: languageName, Imp: try + ".*"}
-		if hits := ix.FindRulesByImportWithConfig(c, wild, languageName); len(hits) > 0 {
-			if hits[0].IsSelfImport(from) {
+		if hits := ctx.ix.FindRulesByImportWithConfig(ctx.c, wild, languageName); len(hits) > 0 {
+			if hits[0].IsSelfImport(ctx.from) {
 				return ""
 			}
-			return hits[0].Label.Rel(from.Repo, from.Pkg).String()
+			return hits[0].Label.Rel(ctx.from.Repo, ctx.from.Pkg).String()
 		}
 
 		// 3c. Sibling-import resolution: when enabled, also try the import
 		// path as if it were a sibling of the importer's own package. So
 		// `from app import X` from `myapp/app_test.py` matches a local
 		// `myapp/app.py` library. Off by default (matches rules_python).
-		if cfg.resolveSiblingImports && from.Pkg != "" {
-			rel := from.Pkg
-			if cfg.pythonRoot != "" {
-				rel = strings.TrimPrefix(rel, cfg.pythonRoot)
+		if ctx.cfg.resolveSiblingImports && ctx.from.Pkg != "" {
+			rel := ctx.from.Pkg
+			if ctx.cfg.pythonRoot != "" {
+				rel = strings.TrimPrefix(rel, ctx.cfg.pythonRoot)
 				rel = strings.TrimPrefix(rel, "/")
 			}
 			fromDotted := strings.ReplaceAll(rel, "/", ".")
 			if fromDotted != "" {
 				sibKey := fromDotted + "." + try
 				sibSpec := resolve.ImportSpec{Lang: languageName, Imp: sibKey}
-				if hits := ix.FindRulesByImportWithConfig(c, sibSpec, languageName); len(hits) > 0 {
-					if hits[0].IsSelfImport(from) {
+				if hits := ctx.ix.FindRulesByImportWithConfig(ctx.c, sibSpec, languageName); len(hits) > 0 {
+					if hits[0].IsSelfImport(ctx.from) {
 						return ""
 					}
-					return hits[0].Label.Rel(from.Repo, from.Pkg).String()
+					return hits[0].Label.Rel(ctx.from.Repo, ctx.from.Pkg).String()
 				}
 				sibWild := resolve.ImportSpec{Lang: languageName, Imp: sibKey + ".*"}
-				if hits := ix.FindRulesByImportWithConfig(c, sibWild, languageName); len(hits) > 0 {
-					if hits[0].IsSelfImport(from) {
+				if hits := ctx.ix.FindRulesByImportWithConfig(ctx.c, sibWild, languageName); len(hits) > 0 {
+					if hits[0].IsSelfImport(ctx.from) {
 						return ""
 					}
-					return hits[0].Label.Rel(from.Repo, from.Pkg).String()
+					return hits[0].Label.Rel(ctx.from.Repo, ctx.from.Pkg).String()
 				}
 			}
 		}
@@ -239,6 +354,26 @@ func (l *pyLang) resolveOne(
 		}
 	}
 
+	tried := map[string]bool{}
+	for _, try := range moduleCandidates(moduleName, fromPart) {
+		tried[try] = true
+	}
+	// The from-import bound above prevents broad first-party aggregate matches.
+	// Pip manifests are different: wheels commonly expose submodules while the
+	// manifest records only the import root, e.g. rich.console -> rich.
+	for _, try := range pipManifestCandidates(moduleName) {
+		if tried[try] {
+			continue
+		}
+		if dist, ok := ctx.manifest.ModulesMapping[try]; ok {
+			distName := normalizeDist(dist, ctx.cfg.labelNormalization)
+			if dep := ctx.existingPipDepForDist(distName); dep != "" {
+				return dep
+			}
+			return ctx.pipLabelForDist(distName)
+		}
+	}
+
 	// Nothing matched at any prefix. Optimistically emit a pip label for the
 	// top-level module name unless the user gave us a project-deps file that
 	// excludes it.
@@ -246,15 +381,93 @@ func (l *pyLang) resolveOne(
 	if isStdlib(topLevel) {
 		return ""
 	}
-	dist := normalizeDist(topLevel, cfg.labelNormalization)
+	dist := normalizeDist(topLevel, ctx.cfg.labelNormalization)
 	// packageDeps is normalized at load time as snake_case for back-compat;
 	// gate emission against the snake form regardless of the active mode so
 	// pyproject-declared deps stay matched even when rendering pep503 labels.
 	declared := normalizeDist(topLevel, snakeCaseNormalization)
-	if len(l.packageDeps) > 0 && !l.packageDeps[declared] {
+	if dep := ctx.existingPipDepForDist(dist); dep != "" {
+		return dep
+	}
+	if len(ctx.packageDeps) > 0 && !ctx.packageDeps[declared] {
 		return ""
 	}
-	return pipLabel(cfg, dist)
+	return ctx.pipLabelForDist(dist)
+}
+
+func (ctx *resolverContext) pipLabelForDist(distName string) string {
+	repoName := ctx.pipRepo
+	if repoName == "" {
+		repoName = parsePipRepo(ctx.cfg.pipLinkPattern)
+	}
+	return pipLabelForRepo(ctx.cfg.pipLinkPattern, repoName, distName)
+}
+
+func (ctx *resolverContext) existingPipDepForDist(distName string) string {
+	if len(ctx.existingPipDeps) == 0 {
+		return ""
+	}
+	dist := normalizeDist(distName, snakeCaseNormalization)
+	deps := ctx.existingPipDeps[dist]
+	if len(deps) == 0 {
+		return ""
+	}
+	ctx.usedPipDists[dist] = true
+	return deps[0]
+}
+
+func existingPipDepsByDist(deps []string) map[string][]string {
+	out := map[string][]string{}
+	for _, dep := range deps {
+		dist, ok := pipDistFromLabel(dep)
+		if !ok {
+			continue
+		}
+		out[dist] = append(out[dist], dep)
+	}
+	return out
+}
+
+func (ctx *resolverContext) markResolvedDep(dep string) {
+	dist, ok := pipDistFromLabel(dep)
+	if !ok {
+		return
+	}
+	ctx.usedPipDists[dist] = true
+}
+
+func pipDistFromLabel(dep string) (string, bool) {
+	if !strings.HasPrefix(dep, "@") {
+		return "", false
+	}
+	i := strings.Index(dep, "//")
+	if i < 0 {
+		return "", false
+	}
+	pkg := dep[i+2:]
+	if j := strings.Index(pkg, ":"); j >= 0 {
+		pkg = pkg[:j]
+	}
+	if pkg == "" || strings.Contains(pkg, "/") {
+		return "", false
+	}
+	return normalizeDist(pkg, snakeCaseNormalization), true
+}
+
+func (ctx *resolverContext) preservedExistingPipDeps() []string {
+	if len(ctx.existingPipDeps) == 0 {
+		return nil
+	}
+	var out []string
+	for dist, deps := range ctx.existingPipDeps {
+		if !ctx.usedPipDists[dist] {
+			continue
+		}
+		if len(deps) > 1 {
+			out = append(out, deps...)
+		}
+	}
+	return out
 }
 
 func moduleCandidates(moduleName string, fromPart string) []string {
@@ -275,6 +488,10 @@ func moduleCandidates(moduleName string, fromPart string) []string {
 		candidates = append(candidates, strings.Join(parts[:i], "."))
 	}
 	return candidates
+}
+
+func pipManifestCandidates(moduleName string) []string {
+	return moduleCandidates(moduleName, "")
 }
 
 func setOrDelete(r *rule.Rule, attr string, values []string) {
@@ -377,33 +594,59 @@ func parsePipRepo(pattern string) string {
 	return ""
 }
 
-// loadProjectDeps reads pyproject.toml and/or requirements.txt at the repo
-// root and seeds packageDeps with declared distribution names. Best-effort —
-// neither file is required, and the parser is intentionally simple.
-func (l *pyLang) loadProjectDeps(repoRoot string) {
-	if len(l.packageDeps) > 0 {
-		return
+func (l *pyLang) projectDeps(repoRoot string, cfg *pyConfig) map[string]bool {
+	projectRoot := repoRoot
+	if cfg.pythonRoot != "" {
+		projectRoot = filepath.Join(repoRoot, cfg.pythonRoot)
 	}
 
-	if data, err := os.ReadFile(repoRoot + "/pyproject.toml"); err == nil {
+	l.packageDepsMu.Lock()
+	if l.packageDepsByRoot == nil {
+		l.packageDepsByRoot = map[string]map[string]bool{}
+	}
+	if deps, ok := l.packageDepsByRoot[projectRoot]; ok {
+		l.packageDepsMu.Unlock()
+		return deps
+	}
+	l.packageDepsMu.Unlock()
+
+	deps := loadProjectDeps(projectRoot)
+
+	l.packageDepsMu.Lock()
+	if existing, ok := l.packageDepsByRoot[projectRoot]; ok {
+		l.packageDepsMu.Unlock()
+		return existing
+	}
+	l.packageDepsByRoot[projectRoot] = deps
+	l.packageDepsMu.Unlock()
+	return deps
+}
+
+// loadProjectDeps reads pyproject.toml and/or requirements.txt at a Python
+// project root and returns declared distribution names. Best-effort — neither
+// file is required, and the parser is intentionally simple.
+func loadProjectDeps(projectRoot string) map[string]bool {
+	deps := map[string]bool{}
+	if data, err := os.ReadFile(filepath.Join(projectRoot, "pyproject.toml")); err == nil {
 		for _, name := range scanPyProjectDeps(string(data)) {
-			l.packageDeps[name] = true
+			deps[name] = true
 		}
 	}
 
 	for _, name := range []string{"requirements.txt", "requirements.in"} {
-		f, err := os.Open(repoRoot + "/" + name)
+		f, err := os.Open(filepath.Join(projectRoot, name))
 		if err != nil {
 			continue
 		}
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
 			if dep := parseRequirementLine(scanner.Text()); dep != "" {
-				l.packageDeps[dep] = true
+				deps[dep] = true
 			}
 		}
 		f.Close()
 	}
+	return deps
 }
 
 // scanPyProjectDeps decodes pyproject.toml's `[project].dependencies` array

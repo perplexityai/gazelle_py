@@ -1,6 +1,6 @@
 # import_extractor
 
-Rust staticlib that extracts imports, comments, and `__main__` markers from Python source files. Linked into the gazelle plugin's `go_library` via cgo and dispatched in-process — no subprocess, no IPC.
+Rust staticlib that extracts imports, Gazelle annotation comments, and `__main__` markers from Python source files. Linked into the gazelle plugin's `go_library` via cgo and dispatched in-process — no subprocess, no IPC.
 
 ## Why a Rust crate
 
@@ -18,7 +18,7 @@ flowchart LR
     read --> parse["ruff parse_unchecked"]
     parse --> visit["walk Stmt tree:\nImport, ImportFrom, If, Try,\nFunctionDef, ClassDef, With, For, While"]
     visit --> emit["PyModule { name, lineno,\nfrom, type_checking_only }"]
-    emit --> resp["PyFileOutput\n(modules + comments + has_main)"]
+    emit --> resp["PyFileOutput\n(modules + annotation comments + has_main)"]
     resp -- "PyResponseResult bytes" --> ffi
     ffi -- "ownership transferred" --> Caller
     Caller -- "gazelle_py_ie_free" --> Drop[(buffer freed)]
@@ -29,7 +29,7 @@ What we capture per file:
 - **Modules**: every `import`/`from … import` reachable through the AST, including imports inside function/class bodies, `try` blocks, `with`/`for`/`while` blocks, and `if TYPE_CHECKING:` blocks.
 - **`type_checking_only`**: true when the import sits inside an `if TYPE_CHECKING:` (or `if typing.TYPE_CHECKING:`) block. Gazelle's resolver doesn't differentiate today, but the field is on the wire so consumers can.
 - **Line numbers**: 1-indexed, used for diagnostic output (`EXPLAIN_DEPENDENCY` etc.).
-- **Comments**: every line that starts with `#` (after trimming whitespace). The Go side parses these into `# gazelle:ignore` / `# gazelle:include_dep` annotations.
+- **Comments**: whole-line comments that start with `# gazelle:` after trimming whitespace. The Go side parses these into `# gazelle:ignore` / `# gazelle:include_dep` annotations.
 - **`has_main`**: true when the file contains `if __name__ == "__main__":`. Surfaced through to the plugin even though the plugin doesn't currently use it to emit `py_binary`.
 
 ## C ABI
