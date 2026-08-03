@@ -16,10 +16,16 @@ import (
 // we do. This is how manually-set attrs like main, args, or imports survive
 // gazelle runs.
 //
-// We always emit the stock kinds (py_library, py_test) here. When the
+// We always emit the stock kinds (py_binary, py_library, py_test) here. When the
 // consumer applies `# gazelle:map_kind py_library myrepo_py_library …`,
 // gazelle rewrites the kind on disk but still uses these merge rules.
 var pyKinds = map[string]rule.KindInfo{
+	defaultBinaryKind: {
+		NonEmptyAttrs: map[string]bool{"name": true},
+		ResolveAttrs: map[string]bool{
+			"deps": true,
+		},
+	},
 	defaultLibraryKind: {
 		NonEmptyAttrs:  map[string]bool{"name": true},
 		MergeableAttrs: map[string]bool{"srcs": true},
@@ -51,7 +57,7 @@ func (l *pyLang) Loads() []rule.LoadInfo {
 	return []rule.LoadInfo{
 		{
 			Name:    "@rules_python//python:defs.bzl",
-			Symbols: []string{defaultLibraryKind, defaultTestKind},
+			Symbols: []string{defaultBinaryKind, defaultLibraryKind, defaultTestKind},
 		},
 	}
 }

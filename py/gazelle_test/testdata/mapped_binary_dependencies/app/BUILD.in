@@ -1,0 +1,12 @@
+load("//tools:python_defs.bzl", "custom_py_binary")
+
+custom_py_binary(
+    name = "cli",
+    main = "cli.py",
+    deps = ["//stale:dep"],
+)
+
+custom_py_binary(
+    name = "cli_variant",
+    main = "cli.py",
+)

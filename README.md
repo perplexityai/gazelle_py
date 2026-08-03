@@ -52,7 +52,7 @@ flowchart LR
 
 ## What this repo gives you
 
-- **`py`** — Gazelle Python language extension. Generates and maintains `BUILD.bazel` files for Python packages, emitting stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) and [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules. Consumers swap to their own macros via `# gazelle:map_kind`. Compose your own `gazelle_binary(languages = ["@gazelle_py//py"])`.
+- **`py`** — Gazelle Python language extension. Generates and maintains `BUILD.bazel` files for Python packages, emitting stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) and [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules and maintaining dependencies for existing [`py_binary`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_binary) rules. Consumers swap to their own macros via `# gazelle:map_kind`. Compose your own `gazelle_binary(languages = ["@gazelle_py//py"])`.
 - **`crates/import_extractor`** — Rust staticlib that parses Python imports via [`ruff`](https://github.com/astral-sh/ruff)'s parser. Exposes a 2-function, plugin-namespaced C ABI (`gazelle_py_ie_dispatch` / `gazelle_py_ie_free`); the gazelle plugin links it via cgo and dispatches in-process — no subprocess startup, no JSON serialization, just protobuf bytes across the FFI boundary. See [`crates/import_extractor/README.md`](crates/import_extractor/README.md).
 
 ## Usage
@@ -117,12 +117,13 @@ bazel run //:gazelle       # generate / update BUILD.bazel files
 bazel run //:gazelle -- update -mode=diff   # idempotency check
 ```
 
-The plugin walks the directory tree, parses every `.py` for imports via the Rust extractor, and emits stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) (one per dir with sources) plus [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules (matched against `*_test.py`, `test_*.py`, `tests/**`, `test/**`). `deps` are filled in from a manifest, the first-party `RuleIndex`, or the `pip_parse` repo, in that order.
+The plugin walks the directory tree, parses every `.py` for imports via the Rust extractor, and emits stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) (one per dir with sources) plus [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules (matched against `*_test.py`, `test_*.py`, `tests/**`, `test/**`). It also updates `deps` on existing `py_binary` rules from their `main` or `srcs`; in file mode, a same-name binary owns its entrypoint instead of receiving a duplicate library target. `deps` are filled in from a manifest, the first-party `RuleIndex`, or the `pip_parse` repo, in that order.
 
 By default the plugin emits:
 
 - `py_library` for libraries (loaded from `@rules_python//python:defs.bzl`)
 - `py_test` for tests (loaded from `@rules_python//python:defs.bzl`)
+- existing `py_binary` rules have their dependencies maintained (loaded from `@rules_python//python:defs.bzl` when unmapped)
 
 If you have your own macros, use `# gazelle:map_kind` to swap.
 

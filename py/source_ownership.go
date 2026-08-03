@@ -65,13 +65,14 @@ func (e *sourcePatternExpander) all() []string {
 }
 
 type packageSourceOwnership struct {
-	cfg       *pyConfig
-	c         *config.Config
-	file      *rule.File
-	managed   map[string]bool
-	expander  *sourcePatternExpander
-	libKinds  map[string]bool
-	testKinds map[string]bool
+	cfg         *pyConfig
+	c           *config.Config
+	file        *rule.File
+	managed     map[string]bool
+	expander    *sourcePatternExpander
+	binaryKinds map[string]bool
+	libKinds    map[string]bool
+	testKinds   map[string]bool
 
 	sourcesByRule  map[*rule.Rule][]string
 	explicitByRule map[*rule.Rule]map[string]bool
@@ -103,6 +104,7 @@ func newPackageSourceOwnership(cfg *pyConfig, c *config.Config, file *rule.File,
 		file:           file,
 		managed:        managed,
 		expander:       newSourcePatternExpander(cfg, sources),
+		binaryKinds:    mappedKinds(c, defaultBinaryKind),
 		libKinds:       mappedKinds(c, cfg.libraryKind),
 		testKinds:      mappedKinds(c, cfg.testKind),
 		sourcesByRule:  map[*rule.Rule][]string{},
@@ -156,6 +158,10 @@ func (o *packageSourceOwnership) isPythonRule(r *rule.Rule) (bool, bool) {
 	isLib := o.libKinds[r.Kind()]
 	isTest := o.testKinds[r.Kind()]
 	return isLib || isTest, isTest
+}
+
+func (o *packageSourceOwnership) isPythonBinaryRule(r *rule.Rule) bool {
+	return o.binaryKinds[r.Kind()]
 }
 
 func (o *packageSourceOwnership) isManagedExistingRule(r *rule.Rule) bool {

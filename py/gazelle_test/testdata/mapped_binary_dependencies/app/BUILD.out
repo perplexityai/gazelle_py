@@ -1,0 +1,25 @@
+load("//tools:python_defs.bzl", "custom_py_binary", "custom_py_library")
+
+custom_py_binary(
+    name = "cli",
+    main = "cli.py",
+    deps = [
+        ":helper",
+        "@pip//requests",
+    ],
+)
+
+custom_py_binary(
+    name = "cli_variant",
+    main = "cli.py",
+    deps = [
+        ":helper",
+        "@pip//requests",
+    ],
+)
+
+custom_py_library(
+    name = "helper",
+    srcs = ["helper.py"],
+    visibility = ["//visibility:public"],
+)

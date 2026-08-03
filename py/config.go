@@ -8,6 +8,7 @@ const (
 	// to //apps/server, the most natural Bazel idiom.
 	defaultLibraryName    = ""
 	defaultTestName       = ""
+	defaultBinaryKind     = "py_binary"
 	defaultLibraryKind    = "py_library"
 	defaultTestKind       = "py_test"
 	defaultPipLinkPattern = "@pip//{pkg}"

@@ -52,7 +52,7 @@ func (l *pyLang) Resolve(
 	}
 
 	switch r.Kind() {
-	case cfg.libraryKind:
+	case defaultBinaryKind, cfg.libraryKind:
 		all := l.resolveImports(c, ix, importData, importData.Imports, from, cfg, existingDepsForResolve(importData, r))
 		all = append(all, importData.IncludeDeps...)
 		setOrDelete(r, "deps", all)

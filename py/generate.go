@@ -294,6 +294,8 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	if manageHandRolled {
 		extraPlans := planHandRolledRules(cfg, c, rel, specs, facts, ownership, file, managed)
 		plans = append(plans, extraPlans...)
+	} else {
+		plans = append(plans, planHandRolledBinaryRules(cfg, c, rel, specs, facts, ownership, file)...)
 	}
 
 	return generateResultFromPlans(plans, cfg)
@@ -355,6 +357,14 @@ func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs 
 }
 
 func planHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool) []rulePlan {
+	return planExistingPythonRules(cfg, c, rel, specs, facts, ownership, file, managed, true)
+}
+
+func planHandRolledBinaryRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File) []rulePlan {
+	return planExistingPythonRules(cfg, c, rel, specs, facts, ownership, file, nil, false)
+}
+
+func planExistingPythonRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool, includeLibrariesAndTests bool) []rulePlan {
 	if file == nil {
 		return nil
 	}
@@ -367,11 +377,12 @@ func planHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []Fi
 
 	var plans []rulePlan
 	for _, er := range file.Rules {
-		if managed[er.Name()] {
+		if managed != nil && managed[er.Name()] {
 			continue
 		}
+		isBinary := ownership.isPythonBinaryRule(er)
 		okRule, isTest := ownership.isPythonRule(er)
-		if !okRule {
+		if !isBinary && (!includeLibrariesAndTests || !okRule) {
 			continue
 		}
 		srcs, ok := ownership.sourcesForRule(er)
@@ -385,7 +396,9 @@ func planHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []Fi
 		annot := facts.annotationsFor(srcs)
 		kind := cfg.libraryKind
 		data := ImportData{Imports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
-		if isTest {
+		if isBinary {
+			kind = defaultBinaryKind
+		} else if isTest {
 			kind = cfg.testKind
 			data = ImportData{TestImports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
 		}
@@ -436,6 +449,7 @@ func annotationsForSrcs(rel string, srcs []string, results map[string]FileImport
 func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, file *rule.File) language.GenerateResult {
 	facts := newSourceFacts(rel, specs, results)
 	ownership := newSpecPackageSourceOwnership(cfg, c, rel, specs, file, nil)
+	binaryEntrypoints := existingBinaryEntrypoints(ownership, file)
 	// Sort by the in-package relative path so emitted rules are stable.
 	sortedSpecs := append([]FileSpec(nil), specs...)
 	sort.Slice(sortedSpecs, func(i, j int) bool {
@@ -462,6 +476,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 			}
 		}
 		ruleName := perFileRuleName(srcName)
+		if binaryEntrypoints[ruleName] == filepath.ToSlash(srcName) {
+			continue
+		}
 		r := rule.NewRule(cfg.libraryKind, ruleName)
 		r.SetAttr("srcs", []string{srcName})
 		if isConftestAtPackageRoot(srcName) {
@@ -521,7 +538,33 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 		})
 	}
 
+	plans = append(plans, planHandRolledBinaryRules(cfg, c, rel, specs, facts, ownership, file)...)
+
 	return generateResultFromPlans(plans, cfg)
+}
+
+func existingBinaryEntrypoints(ownership *packageSourceOwnership, file *rule.File) map[string]string {
+	entrypoints := map[string]string{}
+	if file == nil {
+		return entrypoints
+	}
+	for _, r := range file.Rules {
+		if !ownership.isPythonBinaryRule(r) {
+			continue
+		}
+		if r.Attr("main") != nil {
+			entrypoints[r.Name()] = filepath.ToSlash(r.AttrString("main"))
+			continue
+		}
+		defaultMain := r.Name() + ".py"
+		for _, src := range r.AttrStrings("srcs") {
+			if filepath.ToSlash(src) == defaultMain {
+				entrypoints[r.Name()] = defaultMain
+				break
+			}
+		}
+	}
+	return entrypoints
 }
 
 // pkgRelativePath drops the package prefix from a workspace-relative path.

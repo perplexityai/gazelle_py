@@ -719,6 +719,92 @@ func TestGeneratePerFileRules_ConftestTestonly(t *testing.T) {
 	}
 }
 
+func TestGeneratePerFileRules_ExistingMappedBinariesOwnEntrypointAndReceiveImports(t *testing.T) {
+	cfg := newPyConfig()
+	c := &config.Config{KindMap: map[string]config.MappedKind{
+		defaultBinaryKind: {KindName: "pplx_python_binary"},
+	}}
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:python_defs.bzl", "pplx_python_binary")
+
+pplx_python_binary(
+    name = "cli",
+    main = "cli.py",
+    deps = ["//stale:dep"],
+)
+
+pplx_python_binary(
+    name = "cli_harbor",
+    main = "cli.py",
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/cli.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	cliImports := []ImportStatement{
+		{ImportPath: "pkg.helper", SourceFile: "pkg/cli.py"},
+		{ImportPath: "requests", SourceFile: "pkg/cli.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/cli.py":    {Modules: cliImports},
+		"pkg/helper.py": {},
+	}
+
+	res := generatePerFileRules(cfg, c, "pkg", specs, results, file)
+
+	byName := map[string]*ruleSnapshot{}
+	importsByName := map[string]ImportData{}
+	for i, r := range res.Gen {
+		byName[r.Name()] = snapshot(r)
+		data, ok := res.Imports[i].(ImportData)
+		if !ok {
+			t.Fatalf("imports[%d] has type %T, want ImportData", i, res.Imports[i])
+		}
+		importsByName[r.Name()] = data
+	}
+	if got := byName["cli"]; got == nil || got.kind != defaultBinaryKind {
+		t.Fatalf(":cli = %+v, want generated %s rule", got, defaultBinaryKind)
+	}
+	if got := byName["cli_harbor"]; got == nil || got.kind != defaultBinaryKind {
+		t.Fatalf(":cli_harbor = %+v, want generated %s rule", got, defaultBinaryKind)
+	}
+	if got := byName["helper"]; got == nil || got.kind != defaultLibraryKind {
+		t.Fatalf(":helper = %+v, want generated %s rule", got, defaultLibraryKind)
+	}
+	for _, name := range []string{"cli", "cli_harbor"} {
+		if got := importsByName[name].Imports; !reflect.DeepEqual(got, cliImports) {
+			t.Errorf(":%s imports = %v, want %v", name, got, cliImports)
+		}
+	}
+	if got := importsByName["cli"].ExistingDeps; !reflect.DeepEqual(got, []string{"//stale:dep"}) {
+		t.Errorf(":cli existing deps = %v, want [//stale:dep]", got)
+	}
+}
+
+func TestGeneratePerFileRules_StockBinaryDefaultMainOwnsEntrypoint(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "tool",
+    srcs = ["tool.py"],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/tool.py"}}
+	results := map[string]FileImports{"pkg/tool.py": {}}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %v, want only existing binary plan", ruleNames(res.Gen))
+	}
+	if got := snapshot(res.Gen[0]); got.name != "tool" || got.kind != defaultBinaryKind {
+		t.Fatalf("generated rule = %+v, want py_binary :tool", got)
+	}
+}
+
 func TestGenerateAggregateRules_HandRolledTargetsPackageModeOnly(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `
@@ -1043,7 +1129,7 @@ pplx_python_test_package(
 	}
 }
 
-func TestGenerateAggregateRules_MappedPythonBinaryMainStaysInLibrary(t *testing.T) {
+func TestGenerateAggregateRules_MappedPythonBinaryMainStaysInLibraryAndReceivesImports(t *testing.T) {
 	cfg := newPyConfig()
 	c := &config.Config{KindMap: map[string]config.MappedKind{
 		"py_binary": {KindName: "pplx_python_binary"},
@@ -1057,7 +1143,8 @@ pplx_python_binary(
 )
 `)
 	specs := []FileSpec{{RelPath: "pkg/tool.py"}}
-	results := map[string]FileImports{"pkg/tool.py": {}}
+	toolImports := []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/tool.py"}}
+	results := map[string]FileImports{"pkg/tool.py": {Modules: toolImports}}
 
 	res := generateAggregateRules(cfg, c, "pkg", specs, results, file, true)
 
@@ -1073,6 +1160,23 @@ pplx_python_binary(
 	}
 	if srcs := lib.AttrStrings("srcs"); !reflect.DeepEqual(srcs, []string{"tool.py"}) {
 		t.Fatalf("package library srcs = %v, want [tool.py]", srcs)
+	}
+
+	var binaryImports ImportData
+	foundBinary := false
+	for i, r := range res.Gen {
+		if r.Name() != "tool" || r.Kind() != defaultBinaryKind {
+			continue
+		}
+		foundBinary = true
+		binaryImports = res.Imports[i].(ImportData)
+		break
+	}
+	if !foundBinary {
+		t.Fatalf("missing generated binary dependency plan; got %v", ruleNames(res.Gen))
+	}
+	if !reflect.DeepEqual(binaryImports.Imports, toolImports) {
+		t.Fatalf("binary imports = %v, want %v", binaryImports.Imports, toolImports)
 	}
 }
 
