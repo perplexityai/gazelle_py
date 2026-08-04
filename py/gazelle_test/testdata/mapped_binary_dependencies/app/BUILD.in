@@ -1,4 +1,4 @@
-load("//tools:python_defs.bzl", "custom_py_binary")
+load("//tools:python_defs.bzl", "custom_py_binary", "workflow_job")
 
 custom_py_binary(
     name = "cli",
@@ -9,4 +9,9 @@ custom_py_binary(
 custom_py_binary(
     name = "cli_variant",
     main = "cli.py",
+)
+
+workflow_job(
+    name = "launch",
+    main = "job_test.py",
 )

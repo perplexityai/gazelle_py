@@ -64,6 +64,12 @@ func (e *sourcePatternExpander) all() []string {
 	return append([]string(nil), e.sources...)
 }
 
+func (e *sourcePatternExpander) contains(source string) bool {
+	source = filepath.ToSlash(source)
+	i := sort.SearchStrings(e.sources, source)
+	return i < len(e.sources) && e.sources[i] == source
+}
+
 type packageSourceOwnership struct {
 	cfg         *pyConfig
 	c           *config.Config
@@ -179,7 +185,30 @@ func (o *packageSourceOwnership) isPythonSourceOwner(r *rule.Rule) bool {
 	if isPythonTestPackageRule(r) {
 		return true
 	}
+	if o.isUnmappedPythonMainOwner(r) {
+		return true
+	}
 	return strings.Contains(r.Kind(), "test") && (r.Attr("srcs") != nil || len(r.AttrStrings("file_patterns")) > 0)
+}
+
+func (o *packageSourceOwnership) isUnmappedPythonMainOwner(r *rule.Rule) bool {
+	return !o.isPythonBinaryRule(r) &&
+		r.Attr("main") != nil &&
+		o.expander.contains(r.AttrString("main"))
+}
+
+func (o *packageSourceOwnership) unmappedPythonMainSources() map[string]bool {
+	owned := map[string]bool{}
+	if o.file == nil {
+		return owned
+	}
+	for _, r := range o.file.Rules {
+		if !o.isUnmappedPythonMainOwner(r) {
+			continue
+		}
+		owned[filepath.ToSlash(r.AttrString("main"))] = true
+	}
+	return owned
 }
 
 func (o *packageSourceOwnership) sourcesOwnedByRule(r *rule.Rule) ([]string, bool) {
@@ -192,7 +221,18 @@ func (o *packageSourceOwnership) sourcesOwnedByRule(r *rule.Rule) ([]string, boo
 	if isPythonTestPackageRule(r) && r.Attr("srcs") == nil && len(r.AttrStrings("file_patterns")) == 0 && r.Attr("main") == nil {
 		return o.expander.all(), true
 	}
-	return o.sourcesForRule(r)
+	srcs, ok := o.sourcesForRule(r)
+	if !ok || !o.isUnmappedPythonMainOwner(r) {
+		return srcs, ok
+	}
+
+	main := filepath.ToSlash(r.AttrString("main"))
+	for _, src := range srcs {
+		if filepath.ToSlash(src) == main {
+			return srcs, true
+		}
+	}
+	return append(srcs, main), true
 }
 
 func isPythonTestPackageRule(r *rule.Rule) bool {

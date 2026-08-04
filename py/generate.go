@@ -449,6 +449,7 @@ func annotationsForSrcs(rel string, srcs []string, results map[string]FileImport
 func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, file *rule.File) language.GenerateResult {
 	facts := newSourceFacts(rel, specs, results)
 	ownership := newSpecPackageSourceOwnership(cfg, c, rel, specs, file, nil)
+	unmappedMainOwned := ownership.unmappedPythonMainSources()
 	binaryEntrypoints := existingBinaryEntrypoints(ownership, file)
 	// Sort by the in-package relative path so emitted rules are stable.
 	sortedSpecs := append([]FileSpec(nil), specs...)
@@ -462,6 +463,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 	)
 	for _, s := range sortedSpecs {
 		srcName := pkgRelativePath(s.RelPath, rel)
+		if unmappedMainOwned[filepath.ToSlash(srcName)] {
+			continue
+		}
 		if isTestFile(srcName, cfg) {
 			continue
 		}
@@ -505,6 +509,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 
 	for _, s := range sortedSpecs {
 		srcName := pkgRelativePath(s.RelPath, rel)
+		if unmappedMainOwned[filepath.ToSlash(srcName)] {
+			continue
+		}
 		if !isTestFile(srcName, cfg) {
 			continue
 		}

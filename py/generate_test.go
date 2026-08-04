@@ -1180,6 +1180,43 @@ pplx_python_binary(
 	}
 }
 
+func TestGenerateAggregateRules_UnmappedPythonMainOwnsEntrypoint(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+workflow_job(
+    name = "launch",
+    main = "job.py",
+    srcs = ["config.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/config.py"},
+		{RelPath: "pkg/helper.py"},
+		{RelPath: "pkg/job.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/config.py": {},
+		"pkg/helper.py": {},
+		"pkg/job.py":    {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	var lib *rule.Rule
+	for _, r := range res.Gen {
+		if r.Name() == "pkg" {
+			lib = r
+			break
+		}
+	}
+	if lib == nil {
+		t.Fatalf("missing generated package library; got %v", ruleNames(res.Gen))
+	}
+	if srcs := lib.AttrStrings("srcs"); !reflect.DeepEqual(srcs, []string{"helper.py"}) {
+		t.Fatalf("package library srcs = %v, want [helper.py]", srcs)
+	}
+}
+
 func TestGenerateAggregateRules_FilegroupGlobOwnsResourceSources(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `

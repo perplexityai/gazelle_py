@@ -117,7 +117,7 @@ bazel run //:gazelle       # generate / update BUILD.bazel files
 bazel run //:gazelle -- update -mode=diff   # idempotency check
 ```
 
-The plugin walks the directory tree, parses every `.py` for imports via the Rust extractor, and emits stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) (one per dir with sources) plus [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules (matched against `*_test.py`, `test_*.py`, `tests/**`, `test/**`). It also updates `deps` on existing `py_binary` rules from their `main` or `srcs`; in file mode, a same-name binary owns its entrypoint instead of receiving a duplicate library target. `deps` are filled in from a manifest, the first-party `RuleIndex`, or the `pip_parse` repo, in that order.
+The plugin walks the directory tree, parses every `.py` for imports via the Rust extractor, and emits stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) (one per dir with sources) plus [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules (matched against `*_test.py`, `test_*.py`, `tests/**`, `test/**`). It also updates `deps` on existing `py_binary` rules from their `main` or `srcs`; in file mode, a same-name binary owns its entrypoint instead of receiving a duplicate library target. Other wrapper rules with a local `.py` `main` also own that entrypoint, but Gazelle only maintains their dependencies when their kind is mapped from `py_binary`. `deps` are filled in from a manifest, the first-party `RuleIndex`, or the `pip_parse` repo, in that order.
 
 By default the plugin emits:
 
