@@ -529,7 +529,7 @@ func TestConftestImportsFor(t *testing.T) {
 	mustWrite("apps/conftest.py")
 	mustWrite("apps/server/conftest.py")
 
-	got := conftestImportsFor(root, "apps/server/api")
+	got := conftestImportsFor(root, "apps/server/api", "")
 	if len(got) != 2 {
 		t.Fatalf("want 2 ancestor conftests, got %d (%+v)", len(got), got)
 	}
@@ -547,11 +547,32 @@ func TestConftestImportsFor(t *testing.T) {
 	}
 }
 
+func TestConftestImportsFor_NestedPythonRoot(t *testing.T) {
+	root := t.TempDir()
+	conftest := filepath.Join(root, "data", "tests", "conftest.py")
+	if err := os.MkdirAll(filepath.Dir(conftest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(conftest, []byte("# fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := conftestImportsFor(root, "data/tests/etl/common", "data/tests")
+	want := []ImportStatement{{
+		ImportPath: "conftest",
+		From:       "conftest",
+		SourceFile: filepath.Join("data", "tests", "conftest.py"),
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("conftestImportsFor() = %+v, want %+v", got, want)
+	}
+}
+
 // TestConftestImportsFor_NoneFound: when no ancestor has a conftest.py, the
 // helper returns nil — the test rule's deps shouldn't gain a synthetic import.
 func TestConftestImportsFor_NoneFound(t *testing.T) {
 	root := t.TempDir()
-	if got := conftestImportsFor(root, "apps/server"); len(got) != 0 {
+	if got := conftestImportsFor(root, "apps/server", ""); len(got) != 0 {
 		t.Errorf("want no synthesized imports, got %v", got)
 	}
 }

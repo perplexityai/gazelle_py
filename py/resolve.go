@@ -3,6 +3,7 @@ package py
 import (
 	"bufio"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -69,7 +70,7 @@ func (l *pyLang) Resolve(
 		// The normal possible-modules loop then resolves it to whatever
 		// `:conftest` library target indexes that path; if no such target
 		// exists, the import is silently dropped.
-		for _, syn := range l.cachedConftestImportsFor(c.RepoRoot, from.Pkg) {
+		for _, syn := range l.cachedConftestImportsFor(c.RepoRoot, from.Pkg, cfg.pythonRoot) {
 			modules = append(modules, syn)
 		}
 
@@ -90,22 +91,35 @@ func existingDepsForResolve(importData ImportData, r *rule.Rule) []string {
 // and returns synthetic imports for every ancestor that has a conftest.py.
 // `pytest` discovers these automatically; we mirror that discovery so the
 // resolver can attach a `:conftest` dep when the user has split it out.
-func conftestImportsFor(repoRoot, pkg string) []ImportStatement {
+func conftestImportsFor(repoRoot, pkg, pythonRoot string) []ImportStatement {
 	var out []ImportStatement
-	cur := pkg
+	cur := strings.Trim(filepath.ToSlash(pkg), "/")
+	root := strings.Trim(filepath.ToSlash(pythonRoot), "/")
+	if root != "" && cur != root && !strings.HasPrefix(cur, root+"/") {
+		return out
+	}
 	for {
 		if cur == "" {
 			break
 		}
-		if _, err := os.Stat(filepath.Join(repoRoot, cur, "conftest.py")); err == nil {
-			module := strings.ReplaceAll(cur, "/", ".") + ".conftest"
+		conftestPath := filepath.Join(repoRoot, filepath.FromSlash(cur), "conftest.py")
+		if _, err := os.Stat(conftestPath); err == nil {
+			modulePkg := strings.TrimPrefix(cur, root)
+			modulePkg = strings.TrimPrefix(modulePkg, "/")
+			module := "conftest"
+			if modulePkg != "" {
+				module = strings.ReplaceAll(modulePkg, "/", ".") + ".conftest"
+			}
 			out = append(out, ImportStatement{
 				ImportPath: module,
 				From:       module,
-				SourceFile: filepath.Join(cur, "conftest.py"),
+				SourceFile: filepath.Join(filepath.FromSlash(cur), "conftest.py"),
 			})
 		}
-		cur = filepath.Dir(cur)
+		if cur == root {
+			break
+		}
+		cur = path.Dir(cur)
 		if cur == "." {
 			cur = ""
 		}
@@ -114,12 +128,13 @@ func conftestImportsFor(repoRoot, pkg string) []ImportStatement {
 }
 
 type conftestCacheKey struct {
-	repoRoot string
-	pkg      string
+	repoRoot   string
+	pkg        string
+	pythonRoot string
 }
 
-func (l *pyLang) cachedConftestImportsFor(repoRoot, pkg string) []ImportStatement {
-	key := conftestCacheKey{repoRoot: repoRoot, pkg: pkg}
+func (l *pyLang) cachedConftestImportsFor(repoRoot, pkg, pythonRoot string) []ImportStatement {
+	key := conftestCacheKey{repoRoot: repoRoot, pkg: pkg, pythonRoot: pythonRoot}
 
 	l.conftestMu.Lock()
 	if l.conftestCache == nil {
@@ -131,7 +146,7 @@ func (l *pyLang) cachedConftestImportsFor(repoRoot, pkg string) []ImportStatemen
 	}
 	l.conftestMu.Unlock()
 
-	imports := conftestImportsFor(repoRoot, pkg)
+	imports := conftestImportsFor(repoRoot, pkg, pythonRoot)
 
 	l.conftestMu.Lock()
 	l.conftestCache[key] = append([]ImportStatement(nil), imports...)
