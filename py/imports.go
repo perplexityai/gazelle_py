@@ -41,9 +41,6 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 		rel = strings.TrimPrefix(rel, "/")
 	}
 	pkg := strings.ReplaceAll(rel, "/", ".")
-	if pkg == "" {
-		return nil
-	}
 
 	ownership := newDiskPackageSourceOwnership(l, cfg, c, f)
 	srcs, ok := ownership.sourcesForRule(r)

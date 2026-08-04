@@ -183,6 +183,31 @@ func TestImports_ConftestNarrowSpec(t *testing.T) {
 	}
 }
 
+func TestImports_ModuleAtPythonRoot(t *testing.T) {
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "data", "tests")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "conftest.py"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := newPyConfig()
+	cfg.pythonRoot = "data/tests"
+	l := &pyLang{}
+	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: cfg}}
+	f := rule.EmptyFile("data/tests/BUILD.bazel", "data/tests")
+	r := rule.NewRule(defaultLibraryKind, conftestTargetName)
+	r.SetAttr("srcs", []string{conftestFilename})
+
+	got := importPaths(l.Imports(c, r, f))
+	want := []string{"conftest"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Imports() = %v, want %v", got, want)
+	}
+}
+
 // TestImports_TestKindNotIndexed: test rules don't get indexed. Cross-package
 // imports of test code are rare, and indexing would create lib↔test cycles
 // when both rules sit in the same directory.
