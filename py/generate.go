@@ -406,8 +406,8 @@ func planExistingPythonRules(cfg *pyConfig, c *config.Config, rel string, specs 
 			data.ExistingDeps = er.AttrStrings("deps")
 		}
 		r := rule.NewRule(kind, er.Name())
-		if er.Attr("srcs") != nil {
-			r.SetAttr("srcs", er.AttrStrings("srcs"))
+		if !isBinary && er.Attr("srcs") != nil {
+			r.SetAttr("srcs", er.Attr("srcs"))
 		}
 		plans = append(plans, rulePlan{rule: r, imports: data})
 	}
@@ -450,7 +450,7 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 	facts := newSourceFacts(rel, specs, results)
 	ownership := newSpecPackageSourceOwnership(cfg, c, rel, specs, file, nil)
 	unmappedMainOwned := ownership.unmappedPythonMainSources()
-	binaryEntrypoints := existingBinaryEntrypoints(ownership, file)
+	binaryOwned := existingBinarySources(ownership, file)
 	// Sort by the in-package relative path so emitted rules are stable.
 	sortedSpecs := append([]FileSpec(nil), specs...)
 	sort.Slice(sortedSpecs, func(i, j int) bool {
@@ -463,7 +463,7 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 	)
 	for _, s := range sortedSpecs {
 		srcName := pkgRelativePath(s.RelPath, rel)
-		if unmappedMainOwned[filepath.ToSlash(srcName)] {
+		if unmappedMainOwned[filepath.ToSlash(srcName)] || binaryOwned[filepath.ToSlash(srcName)] {
 			continue
 		}
 		if isTestFile(srcName, cfg) {
@@ -480,9 +480,6 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 			}
 		}
 		ruleName := perFileRuleName(srcName)
-		if binaryEntrypoints[ruleName] == filepath.ToSlash(srcName) {
-			continue
-		}
 		r := rule.NewRule(cfg.libraryKind, ruleName)
 		r.SetAttr("srcs", []string{srcName})
 		if isConftestAtPackageRoot(srcName) {
@@ -509,7 +506,7 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 
 	for _, s := range sortedSpecs {
 		srcName := pkgRelativePath(s.RelPath, rel)
-		if unmappedMainOwned[filepath.ToSlash(srcName)] {
+		if unmappedMainOwned[filepath.ToSlash(srcName)] || binaryOwned[filepath.ToSlash(srcName)] {
 			continue
 		}
 		if !isTestFile(srcName, cfg) {
@@ -550,28 +547,28 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 	return generateResultFromPlans(plans, cfg)
 }
 
-func existingBinaryEntrypoints(ownership *packageSourceOwnership, file *rule.File) map[string]string {
-	entrypoints := map[string]string{}
+func existingBinarySources(ownership *packageSourceOwnership, file *rule.File) map[string]bool {
+	owned := map[string]bool{}
 	if file == nil {
-		return entrypoints
+		return owned
 	}
 	for _, r := range file.Rules {
 		if !ownership.isPythonBinaryRule(r) {
 			continue
 		}
-		if r.Attr("main") != nil {
-			entrypoints[r.Name()] = filepath.ToSlash(r.AttrString("main"))
+		sources, ok := ownership.sourcesForRule(r)
+		if !ok {
+			defaultMain := r.Name() + ".py"
+			if ownership.expander.contains(defaultMain) {
+				owned[defaultMain] = true
+			}
 			continue
 		}
-		defaultMain := r.Name() + ".py"
-		for _, src := range r.AttrStrings("srcs") {
-			if filepath.ToSlash(src) == defaultMain {
-				entrypoints[r.Name()] = defaultMain
-				break
-			}
+		for _, source := range sources {
+			owned[filepath.ToSlash(source)] = true
 		}
 	}
-	return entrypoints
+	return owned
 }
 
 // pkgRelativePath drops the package prefix from a workspace-relative path.

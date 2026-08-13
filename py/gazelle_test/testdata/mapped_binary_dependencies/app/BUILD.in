@@ -11,6 +11,12 @@ custom_py_binary(
     main = "cli.py",
 )
 
+custom_py_binary(
+    name = "batch",
+    srcs = glob(["batch_*.py"]),
+    deps = ["//stale:dep"],
+)
+
 workflow_job(
     name = "launch",
     main = "job_test.py",

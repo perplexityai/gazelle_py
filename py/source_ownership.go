@@ -146,7 +146,15 @@ func (o *packageSourceOwnership) sourcesForRule(r *rule.Rule) ([]string, bool) {
 	var srcs []string
 	switch {
 	case r.Attr("srcs") != nil:
-		srcs = filterPythonSources(r.AttrStrings("srcs"), o.cfg)
+		if glob, ok := rule.ParseGlobExpr(r.Attr("srcs")); ok {
+			srcs = o.expander.expand(glob.Patterns, glob.Excludes)
+		} else {
+			explicit := r.AttrStrings("srcs")
+			if len(explicit) == 0 {
+				return nil, false
+			}
+			srcs = filterPythonSources(explicit, o.cfg)
+		}
 	case r.Attr("main") != nil:
 		srcs = filterPythonSources([]string{r.AttrString("main")}, o.cfg)
 	case len(r.AttrStrings("file_patterns")) > 0:
@@ -155,9 +163,28 @@ func (o *packageSourceOwnership) sourcesForRule(r *rule.Rule) ([]string, bool) {
 	default:
 		return nil, false
 	}
+	if o.isPythonBinaryRule(r) && r.Attr("main") != nil {
+		main := filepath.ToSlash(r.AttrString("main"))
+		if isPythonFile(main, o.cfg) && !containsSource(srcs, main) {
+			srcs = append(srcs, main)
+			sort.Strings(srcs)
+		}
+	}
+	if o.isPythonBinaryRule(r) && len(srcs) == 0 {
+		return nil, false
+	}
 
 	o.sourcesByRule[r] = append([]string(nil), srcs...)
 	return append([]string(nil), srcs...), true
+}
+
+func containsSource(sources []string, candidate string) bool {
+	for _, source := range sources {
+		if filepath.ToSlash(source) == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func (o *packageSourceOwnership) isPythonRule(r *rule.Rule) (bool, bool) {

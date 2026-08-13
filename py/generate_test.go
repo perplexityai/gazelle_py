@@ -805,6 +805,114 @@ py_binary(
 	}
 }
 
+func TestGeneratePerFileRules_GlobBinaryOwnsSourcesAndReceivesImports(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "batch",
+    srcs = glob(["batch_*.py"]),
+    deps = ["//stale:dep"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/batch_runner.py"},
+		{RelPath: "pkg/batch_worker.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	batchImports := []ImportStatement{
+		{ImportPath: "requests", SourceFile: "pkg/batch_runner.py"},
+		{ImportPath: "pkg.helper", SourceFile: "pkg/batch_worker.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/batch_runner.py": {Modules: batchImports[:1]},
+		"pkg/batch_worker.py": {Modules: batchImports[1:]},
+		"pkg/helper.py":       {},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	byName := map[string]*ruleSnapshot{}
+	importsByName := map[string]ImportData{}
+	var batchRule *rule.Rule
+	for i, r := range res.Gen {
+		byName[r.Name()] = snapshot(r)
+		importsByName[r.Name()] = res.Imports[i].(ImportData)
+		if r.Name() == "batch" {
+			batchRule = r
+		}
+	}
+	if got := byName["batch"]; got == nil || got.kind != defaultBinaryKind {
+		t.Fatalf(":batch = %+v, want binary plan without generated srcs", got)
+	}
+	if batchRule.Attr("srcs") != nil {
+		t.Fatalf(":batch generated srcs = %v, want attr omitted", batchRule.Attr("srcs"))
+	}
+	for _, name := range []string{"batch_runner", "batch_worker"} {
+		if byName[name] != nil {
+			t.Errorf("unexpected generated library :%s for binary-owned source", name)
+		}
+	}
+	if got := byName["helper"]; got == nil || got.kind != defaultLibraryKind {
+		t.Fatalf(":helper = %+v, want generated %s rule", got, defaultLibraryKind)
+	}
+	if got := importsByName["batch"].Imports; !reflect.DeepEqual(got, batchImports) {
+		t.Errorf(":batch imports = %v, want %v", got, batchImports)
+	}
+	if got := importsByName["batch"].ExistingDeps; !reflect.DeepEqual(got, []string{"//stale:dep"}) {
+		t.Errorf(":batch existing deps = %v, want [//stale:dep]", got)
+	}
+}
+
+func TestGeneratePerFileRules_NonliteralBinarySourcesRemainUnmanaged(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "batch",
+    srcs = select({
+        "//conditions:default": ["batch.py"],
+    }),
+    deps = ["//manual:dep"],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/batch.py"}}
+	results := map[string]FileImports{
+		"pkg/batch.py": {Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/batch.py"}}},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	if len(res.Gen) != 0 {
+		t.Fatalf("generated rules = %v, want existing binary left untouched", ruleNames(res.Gen))
+	}
+}
+
+func TestGeneratePerFileRules_EmptyBinaryGlobRemainsUnmanaged(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "generated",
+    srcs = glob(["generated_*.py"]),
+    deps = ["//manual:dep"],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/helper.py"}}
+	results := map[string]FileImports{"pkg/helper.py": {}}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	for _, r := range res.Gen {
+		if r.Name() == "generated" {
+			t.Fatalf("empty-glob binary should remain unmanaged, got %s", r.Kind())
+		}
+	}
+}
+
 func TestGenerateAggregateRules_HandRolledTargetsPackageModeOnly(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `
@@ -1566,6 +1674,46 @@ py_library(
 	wantExplicitImports := results["pkg/sub/__init__.py"].Modules
 	if !reflect.DeepEqual(explicitImports, wantExplicitImports) {
 		t.Errorf(":sub imports = %v, want %v", explicitImports, wantExplicitImports)
+	}
+}
+
+func TestGenerateHandRolledRules_PreservesGlobSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "workers",
+    srcs = glob(
+        ["worker_*.py"],
+        exclude = ["worker_legacy.py"],
+    ),
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/worker_active.py"},
+		{RelPath: "pkg/worker_legacy.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/worker_active.py": {Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/worker_active.py"}}},
+		"pkg/worker_legacy.py": {},
+	}
+
+	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg", specs, newSourceFacts("pkg", specs, results), nil, file, nil)
+
+	if len(genRules) != 1 {
+		t.Fatalf("generated rules = %v, want :workers", ruleNames(genRules))
+	}
+	glob, ok := rule.ParseGlobExpr(genRules[0].Attr("srcs"))
+	if !ok {
+		t.Fatalf(":workers srcs = %v, want preserved glob", genRules[0].Attr("srcs"))
+	}
+	if !reflect.DeepEqual(glob.Patterns, []string{"worker_*.py"}) || !reflect.DeepEqual(glob.Excludes, []string{"worker_legacy.py"}) {
+		t.Errorf(":workers glob = patterns %v excludes %v", glob.Patterns, glob.Excludes)
+	}
+	imports := genImports[0].(ImportData).Imports
+	if !reflect.DeepEqual(imports, results["pkg/worker_active.py"].Modules) {
+		t.Errorf(":workers imports = %v, want %v", imports, results["pkg/worker_active.py"].Modules)
 	}
 }
 
