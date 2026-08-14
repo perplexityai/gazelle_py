@@ -107,6 +107,10 @@ type pyConfig struct {
 	// name an ancestor explicitly when only one subtree should inherit the
 	// root, in monorepos with multiple Python projects.
 	pythonRoot string
+	// importPrefix is prepended to module paths after stripping pythonRoot.
+	// This models source layouts where a nested project root still exports a
+	// named top-level package.
+	importPrefix string
 
 	// resolveSiblingImports controls whether bare-module imports
 	// (`from app import X`) are resolved as siblings of the importer's

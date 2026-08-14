@@ -35,6 +35,9 @@ const (
 	// named ancestor, as the Python project root. Explicit ancestors let a
 	// child subtree inherit the root without changing sibling packages.
 	directivePythonRoot = "python_root"
+	// directiveImportPrefix prepends a dotted package prefix to modules under
+	// the active Python root.
+	directiveImportPrefix = "python_import_prefix"
 	// directiveResolveSiblingImports toggles whether bare-module imports
 	// (`from app import X`) resolve as siblings of the importer's package.
 	directiveResolveSiblingImports = "python_resolve_sibling_imports"
@@ -72,6 +75,7 @@ func (l *pyLang) KnownDirectives() []string {
 		directiveLabelConvention,
 		directiveManifest,
 		directivePythonRoot,
+		directiveImportPrefix,
 		directiveResolveSiblingImports,
 		directiveLabelNormalization,
 		directiveGenerationMode,
@@ -159,6 +163,8 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 		}
 	case directivePythonRoot:
 		cfg.pythonRoot = pythonRootForDirective(rel, val)
+	case directiveImportPrefix:
+		cfg.importPrefix = strings.Trim(val, ".")
 	case directiveResolveSiblingImports:
 		cfg.resolveSiblingImports = parseBool(val, cfg.resolveSiblingImports)
 	case directiveLabelNormalization:

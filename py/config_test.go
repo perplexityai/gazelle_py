@@ -116,6 +116,14 @@ func TestApplyDirective_PythonRoot(t *testing.T) {
 	}
 }
 
+func TestApplyDirective_ImportPrefix(t *testing.T) {
+	cfg := newPyConfig()
+	applyDirective(cfg, rule.Directive{Key: directiveImportPrefix, Value: ".ai_training."}, "data/ai_training")
+	if cfg.importPrefix != "ai_training" {
+		t.Fatalf("python_import_prefix: cfg.importPrefix = %q, want %q", cfg.importPrefix, "ai_training")
+	}
+}
+
 func TestApplyDirective_ResolveSiblingImports(t *testing.T) {
 	cfg := newPyConfig()
 	applyDirective(cfg, rule.Directive{Key: directiveResolveSiblingImports, Value: "true"}, "")

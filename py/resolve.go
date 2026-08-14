@@ -70,7 +70,7 @@ func (l *pyLang) Resolve(
 		// The normal possible-modules loop then resolves it to whatever
 		// `:conftest` library target indexes that path; if no such target
 		// exists, the import is silently dropped.
-		for _, syn := range l.cachedConftestImportsFor(c.RepoRoot, from.Pkg, cfg.pythonRoot) {
+		for _, syn := range l.cachedConftestImportsFor(c.RepoRoot, from.Pkg, cfg.pythonRoot, cfg.importPrefix) {
 			modules = append(modules, syn)
 		}
 
@@ -91,7 +91,7 @@ func existingDepsForResolve(importData ImportData, r *rule.Rule) []string {
 // and returns synthetic imports for every ancestor that has a conftest.py.
 // `pytest` discovers these automatically; we mirror that discovery so the
 // resolver can attach a `:conftest` dep when the user has split it out.
-func conftestImportsFor(repoRoot, pkg, pythonRoot string) []ImportStatement {
+func conftestImportsFor(repoRoot, pkg, pythonRoot, importPrefix string) []ImportStatement {
 	var out []ImportStatement
 	cur := strings.Trim(filepath.ToSlash(pkg), "/")
 	root := strings.Trim(filepath.ToSlash(pythonRoot), "/")
@@ -104,11 +104,10 @@ func conftestImportsFor(repoRoot, pkg, pythonRoot string) []ImportStatement {
 		}
 		conftestPath := filepath.Join(repoRoot, filepath.FromSlash(cur), "conftest.py")
 		if _, err := os.Stat(conftestPath); err == nil {
-			modulePkg := strings.TrimPrefix(cur, root)
-			modulePkg = strings.TrimPrefix(modulePkg, "/")
+			modulePkg := modulePackagePath(cur, root, importPrefix)
 			module := "conftest"
 			if modulePkg != "" {
-				module = strings.ReplaceAll(modulePkg, "/", ".") + ".conftest"
+				module = modulePkg + ".conftest"
 			}
 			out = append(out, ImportStatement{
 				ImportPath: module,
@@ -128,13 +127,14 @@ func conftestImportsFor(repoRoot, pkg, pythonRoot string) []ImportStatement {
 }
 
 type conftestCacheKey struct {
-	repoRoot   string
-	pkg        string
-	pythonRoot string
+	repoRoot     string
+	pkg          string
+	pythonRoot   string
+	importPrefix string
 }
 
-func (l *pyLang) cachedConftestImportsFor(repoRoot, pkg, pythonRoot string) []ImportStatement {
-	key := conftestCacheKey{repoRoot: repoRoot, pkg: pkg, pythonRoot: pythonRoot}
+func (l *pyLang) cachedConftestImportsFor(repoRoot, pkg, pythonRoot, importPrefix string) []ImportStatement {
+	key := conftestCacheKey{repoRoot: repoRoot, pkg: pkg, pythonRoot: pythonRoot, importPrefix: importPrefix}
 
 	l.conftestMu.Lock()
 	if l.conftestCache == nil {
@@ -146,7 +146,7 @@ func (l *pyLang) cachedConftestImportsFor(repoRoot, pkg, pythonRoot string) []Im
 	}
 	l.conftestMu.Unlock()
 
-	imports := conftestImportsFor(repoRoot, pkg, pythonRoot)
+	imports := conftestImportsFor(repoRoot, pkg, pythonRoot, importPrefix)
 
 	l.conftestMu.Lock()
 	l.conftestCache[key] = append([]ImportStatement(nil), imports...)
@@ -337,12 +337,7 @@ func (ctx *resolverContext) resolveOneUncached(moduleName string, fromPart strin
 		// `from app import X` from `myapp/app_test.py` matches a local
 		// `myapp/app.py` library. Off by default (matches rules_python).
 		if ctx.cfg.resolveSiblingImports && ctx.from.Pkg != "" {
-			rel := ctx.from.Pkg
-			if ctx.cfg.pythonRoot != "" {
-				rel = strings.TrimPrefix(rel, ctx.cfg.pythonRoot)
-				rel = strings.TrimPrefix(rel, "/")
-			}
-			fromDotted := strings.ReplaceAll(rel, "/", ".")
+			fromDotted := modulePackagePath(ctx.from.Pkg, ctx.cfg.pythonRoot, ctx.cfg.importPrefix)
 			if fromDotted != "" {
 				sibKey := fromDotted + "." + try
 				sibSpec := resolve.ImportSpec{Lang: languageName, Imp: sibKey}
