@@ -965,6 +965,47 @@ py_library(
 	}
 }
 
+func TestGenerateAggregateRules_UnmappedWrapperDelegatesMainToLibraryDependency(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:defs.bzl", "custom_launcher")
+load("@rules_python//python:defs.bzl", "py_library")
+
+custom_launcher(
+    name = "launch",
+    main = "entry.py",
+    deps = [
+        ":pkg",
+        "//manual:dep",
+    ],
+)
+
+py_library(
+    name = "pkg",
+    srcs = ["entry.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/entry.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/entry.py":  {},
+		"pkg/helper.py": {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %v, want only canonical library", ruleNames(res.Gen))
+	}
+	lib := res.Gen[0]
+	want := []string{"entry.py", "helper.py"}
+	if lib.Name() != "pkg" || !reflect.DeepEqual(lib.AttrStrings("srcs"), want) {
+		t.Fatalf("generated library = %s %v, want pkg %v", lib.Name(), lib.AttrStrings("srcs"), want)
+	}
+}
+
 func TestGenerateAggregateRules_ExplicitManagedSrcBeatsBroadHandRolledPattern(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg/sub", `

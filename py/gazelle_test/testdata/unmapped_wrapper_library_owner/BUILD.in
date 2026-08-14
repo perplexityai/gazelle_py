@@ -1,0 +1,1 @@
+# gazelle:map_kind py_library custom_py_library //tools:defs.bzl

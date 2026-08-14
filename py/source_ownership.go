@@ -221,7 +221,43 @@ func (o *packageSourceOwnership) isPythonSourceOwner(r *rule.Rule) bool {
 func (o *packageSourceOwnership) isUnmappedPythonMainOwner(r *rule.Rule) bool {
 	return !o.isPythonBinaryRule(r) &&
 		r.Attr("main") != nil &&
-		o.expander.contains(r.AttrString("main"))
+		o.expander.contains(r.AttrString("main")) &&
+		!o.mainOwnedByLocalLibraryDependency(r)
+}
+
+func (o *packageSourceOwnership) mainOwnedByLocalLibraryDependency(r *rule.Rule) bool {
+	if o.file == nil {
+		return false
+	}
+	main := filepath.ToSlash(r.AttrString("main"))
+	for _, dep := range r.AttrStrings("deps") {
+		name, ok := localDependencyName(dep, o.file.Pkg)
+		if !ok {
+			continue
+		}
+		for _, candidate := range o.file.Rules {
+			isPython, isTest := o.isPythonRule(candidate)
+			if candidate.Name() != name || !isPython || isTest {
+				continue
+			}
+			srcs, ok := o.sourcesForRule(candidate)
+			if ok && containsSource(srcs, main) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func localDependencyName(dep string, pkg string) (string, bool) {
+	if strings.HasPrefix(dep, ":") {
+		return strings.TrimPrefix(dep, ":"), true
+	}
+	prefix := "//" + pkg + ":"
+	if strings.HasPrefix(dep, prefix) {
+		return strings.TrimPrefix(dep, prefix), true
+	}
+	return "", false
 }
 
 func (o *packageSourceOwnership) unmappedPythonMainSources() map[string]bool {

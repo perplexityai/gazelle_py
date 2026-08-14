@@ -1,0 +1,19 @@
+load("//tools:defs.bzl", "custom_launcher", "custom_py_library")
+
+custom_launcher(
+    name = "launch",
+    main = "entry.py",
+    deps = [
+        ":pkg",
+        "//manual:dep",
+    ],
+)
+
+custom_py_library(
+    name = "pkg",
+    srcs = [
+        "entry.py",
+        "helper.py",
+    ],
+    visibility = ["//visibility:public"],
+)
