@@ -81,3 +81,8 @@ func (f *sourceFacts) resultFor(src string) (FileImports, bool) {
 	r, ok := f.results[filepath.Join(f.rel, src)]
 	return r, ok
 }
+
+func (f *sourceFacts) contains(src string) bool {
+	_, ok := f.relBy[filepath.ToSlash(src)]
+	return ok
+}

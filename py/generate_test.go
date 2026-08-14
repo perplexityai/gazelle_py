@@ -1162,6 +1162,68 @@ pplx_python_library(
 	}
 }
 
+func TestGenerateAggregateRules_RefreshesManagedLibrarySources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "pkg",
+    srcs = ["job_test.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/job_test.py"},
+		{RelPath: "pkg/worker.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/job_test.py": {},
+		"pkg/worker.py":   {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %d, want only managed library", len(res.Gen))
+	}
+	lib := res.Gen[0]
+	want := []string{"job_test.py", "worker.py"}
+	if lib.Name() != "pkg" || !reflect.DeepEqual(lib.AttrStrings("srcs"), want) {
+		t.Fatalf("generated library = %s %v, want pkg %v", lib.Name(), lib.AttrStrings("srcs"), want)
+	}
+}
+
+func TestGenerateAggregateRules_RefreshesManagedTestSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_test")
+
+py_test(
+    name = "pkg_test",
+    srcs = ["test_existing.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/test_existing.py"},
+		{RelPath: "pkg/test_new.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/test_existing.py": {},
+		"pkg/test_new.py":      {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %d, want only managed test", len(res.Gen))
+	}
+	test := res.Gen[0]
+	want := []string{"test_existing.py", "test_new.py"}
+	if test.Name() != "pkg_test" || !reflect.DeepEqual(test.AttrStrings("srcs"), want) {
+		t.Fatalf("generated test = %s %v, want pkg_test %v", test.Name(), test.AttrStrings("srcs"), want)
+	}
+}
+
 func TestGenerateAggregateRules_ExplicitSrcsWithUnavailableSourcePreservesDeps(t *testing.T) {
 	cfg := newPyConfig()
 	c := &config.Config{KindMap: map[string]config.MappedKind{
@@ -1532,11 +1594,17 @@ py_library(
     name = "huggingface",
     srcs = ["huggingface.py"],
 )
+
+py_library(
+    name = "sources",
+    srcs = ["__init__.py"],
+)
 `)
 	specs := []FileSpec{
 		{RelPath: "pkg/sources/__init__.py"},
 		{RelPath: "pkg/sources/base.py"},
 		{RelPath: "pkg/sources/huggingface.py"},
+		{RelPath: "pkg/sources/worker.py"},
 	}
 	results := map[string]FileImports{
 		"pkg/sources/__init__.py": {
@@ -1548,6 +1616,7 @@ py_library(
 		"pkg/sources/huggingface.py": {
 			Modules: []ImportStatement{{ImportPath: "huggingface_hub", SourceFile: "pkg/sources/huggingface.py"}},
 		},
+		"pkg/sources/worker.py": {},
 	}
 
 	res := generateAggregateRules(cfg, nil, "pkg/sources", specs, results, file, true)
@@ -1567,8 +1636,8 @@ py_library(
 	if sources == nil {
 		t.Fatalf("missing generated :sources rule; have %v", keys(byName))
 	}
-	if !reflect.DeepEqual(sources.srcs, []string{"__init__.py"}) {
-		t.Errorf(":sources srcs = %v, want [__init__.py]", sources.srcs)
+	if !reflect.DeepEqual(sources.srcs, []string{"__init__.py", "worker.py"}) {
+		t.Errorf(":sources srcs = %v, want [__init__.py worker.py]", sources.srcs)
 	}
 	if !reflect.DeepEqual(importsByName["sources"].Imports, results["pkg/sources/__init__.py"].Modules) {
 		t.Errorf(":sources imports = %v, want %v", importsByName["sources"].Imports, results["pkg/sources/__init__.py"].Modules)

@@ -228,6 +228,12 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	}
 	sort.Strings(libSrcs)
 	sort.Strings(testSrcs)
+	if !ownership.preservesSourceAttrs(libName, false) {
+		libSrcs = refreshManagedSources(ownership, libName, false, libSrcs, facts, handOwned)
+	}
+	if !ownership.preservesSourceAttrs(testName, true) {
+		testSrcs = refreshManagedSources(ownership, testName, true, testSrcs, facts, handOwned)
+	}
 
 	skipLib := cfg.skipEmptyInit && facts.allEmptyInits(libSrcs)
 	skipTest := cfg.skipEmptyInit && facts.allEmptyInits(testSrcs)
@@ -238,11 +244,11 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	if len(libSrcs) > 0 && !skipLib {
 		r := rule.NewRule(cfg.libraryKind, libName)
 		importSrcs := libSrcs
-		if explicitSrcs, ok := ownership.existingExplicitRuleSources(libName, false); ok {
-			importSrcs = explicitSrcs
-			r.SetAttr("srcs", explicitSrcs)
-		} else if ownership.preservesSourceAttrs(libName, false) {
-			if srcs, ok := ownership.existingRuleSources(libName, false); ok {
+		if ownership.preservesSourceAttrs(libName, false) {
+			if explicitSrcs, ok := ownership.existingExplicitRuleSources(libName, false); ok {
+				importSrcs = explicitSrcs
+				r.SetAttr("srcs", explicitSrcs)
+			} else if srcs, ok := ownership.existingRuleSources(libName, false); ok {
 				importSrcs = srcs
 			}
 		} else {
@@ -286,11 +292,11 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	if len(testSrcs) > 0 && !skipTest {
 		r := rule.NewRule(cfg.testKind, testName)
 		importSrcs := testSrcs
-		if explicitSrcs, ok := ownership.existingExplicitRuleSources(testName, true); ok {
-			importSrcs = explicitSrcs
-			r.SetAttr("srcs", explicitSrcs)
-		} else if ownership.preservesSourceAttrs(testName, true) {
-			if srcs, ok := ownership.existingRuleSources(testName, true); ok {
+		if ownership.preservesSourceAttrs(testName, true) {
+			if explicitSrcs, ok := ownership.existingExplicitRuleSources(testName, true); ok {
+				importSrcs = explicitSrcs
+				r.SetAttr("srcs", explicitSrcs)
+			} else if srcs, ok := ownership.existingRuleSources(testName, true); ok {
 				importSrcs = srcs
 			}
 		} else {
@@ -311,6 +317,29 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	}
 
 	return generateResultFromPlans(plans, cfg)
+}
+
+func refreshManagedSources(ownership *packageSourceOwnership, name string, isTest bool, inferred []string, facts *sourceFacts, handOwned map[string]bool) []string {
+	existing, ok := ownership.existingExplicitRuleSources(name, isTest)
+	if !ok {
+		return inferred
+	}
+
+	refreshed := sourceSet(inferred)
+	for _, src := range existing {
+		key := filepath.ToSlash(src)
+		if facts.contains(key) || handOwned[key] {
+			continue
+		}
+		refreshed[key] = true
+	}
+
+	srcs := make([]string, 0, len(refreshed))
+	for src := range refreshed {
+		srcs = append(srcs, src)
+	}
+	sort.Strings(srcs)
+	return srcs
 }
 
 func importDataForSources(facts *sourceFacts, srcs []string, isTest bool) ImportData {

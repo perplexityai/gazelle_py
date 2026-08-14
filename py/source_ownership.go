@@ -286,7 +286,7 @@ func (o *packageSourceOwnership) resourcePythonSourcesOwnedByRule(r *rule.Rule) 
 
 func (o *packageSourceOwnership) preservesSourceAttrs(name string, isTest bool) bool {
 	r := o.existingPythonRule(name, isTest)
-	return r != nil && r.Attr("srcs") == nil && len(r.AttrStrings("file_patterns")) > 0
+	return r != nil && len(r.AttrStrings("file_patterns")) > 0
 }
 
 func (o *packageSourceOwnership) existingExplicitRuleSources(name string, isTest bool) ([]string, bool) {
