@@ -208,6 +208,35 @@ func TestImports_ModuleAtPythonRoot(t *testing.T) {
 	}
 }
 
+func TestImports_ModuleAtExplicitAncestorPythonRoot(t *testing.T) {
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "data", "ai_training", "common")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "utils.py"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := newPyConfig()
+	applyDirective(
+		cfg,
+		rule.Directive{Key: directivePythonRoot, Value: "data"},
+		"data/ai_training",
+	)
+	l := &pyLang{}
+	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: cfg}}
+	f := rule.EmptyFile("data/ai_training/common/BUILD.bazel", "data/ai_training/common")
+	r := rule.NewRule(defaultLibraryKind, "common")
+	r.SetAttr("srcs", []string{"utils.py"})
+
+	got := importPaths(l.Imports(c, r, f))
+	want := []string{"ai_training.common.utils"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Imports() = %v, want %v", got, want)
+	}
+}
+
 // TestImports_TestKindNotIndexed: test rules don't get indexed. Cross-package
 // imports of test code are rare, and indexing would create lib↔test cycles
 // when both rules sit in the same directory.

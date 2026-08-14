@@ -92,12 +92,27 @@ func TestApplyDirective_AppendDirectives(t *testing.T) {
 }
 
 func TestApplyDirective_PythonRoot(t *testing.T) {
-	cfg := newPyConfig()
-	// python_root takes the rel of the BUILD file it's defined in, not whatever
-	// value the user types after the directive.
-	applyDirective(cfg, rule.Directive{Key: directivePythonRoot, Value: ""}, "backend")
-	if cfg.pythonRoot != "backend" {
-		t.Fatalf("python_root: cfg.pythonRoot = %q, want %q", cfg.pythonRoot, "backend")
+	tests := []struct {
+		name  string
+		rel   string
+		value string
+		want  string
+	}{
+		{name: "current package", rel: "backend", want: "backend"},
+		{name: "explicit ancestor", rel: "data/ai_training", value: "data", want: "data"},
+		{name: "normalized ancestor", rel: "data/ai_training/common", value: "/data/./", want: "data"},
+		{name: "workspace root", rel: "tools/python", value: ".", want: ""},
+		{name: "reject parent traversal", rel: "backend", value: "../other", want: "backend"},
+		{name: "reject unrelated root", rel: "backend", value: "frontend", want: "backend"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newPyConfig()
+			applyDirective(cfg, rule.Directive{Key: directivePythonRoot, Value: tt.value}, tt.rel)
+			if cfg.pythonRoot != tt.want {
+				t.Fatalf("python_root: cfg.pythonRoot = %q, want %q", cfg.pythonRoot, tt.want)
+			}
+		})
 	}
 }
 

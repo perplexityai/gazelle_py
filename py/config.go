@@ -103,9 +103,9 @@ type pyConfig struct {
 	// the Python module tree. All dotted import paths are interpreted relative
 	// to this prefix when registering libraries in the RuleIndex. Empty means
 	// "the workspace root itself", which is the most common single-project
-	// layout. Set via the `python_root` directive on a parent BUILD file when
-	// you have multiple Python projects sharing the same Bazel workspace
-	// (e.g. `backend/`, `tools/python/`).
+	// layout. Set via the `python_root` directive on a parent BUILD file, or
+	// name an ancestor explicitly when only one subtree should inherit the
+	// root, in monorepos with multiple Python projects.
 	pythonRoot string
 
 	// resolveSiblingImports controls whether bare-module imports

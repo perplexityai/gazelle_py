@@ -2,6 +2,7 @@ package py
 
 import (
 	"flag"
+	"path"
 	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -30,10 +31,9 @@ const (
 	// table. Set this when working with rules_python's pip_parse, which is
 	// already configured to read the same file.
 	directiveManifest = "python_manifest_file_name"
-	// directivePythonRoot marks the current Bazel package as the Python
-	// project root: dotted import paths under it are relative to this
-	// directory (not the workspace root). Set on a parent BUILD file in
-	// monorepos with multiple Python projects sharing one workspace.
+	// directivePythonRoot marks the current Bazel package, or an explicitly
+	// named ancestor, as the Python project root. Explicit ancestors let a
+	// child subtree inherit the root without changing sibling packages.
 	directivePythonRoot = "python_root"
 	// directiveResolveSiblingImports toggles whether bare-module imports
 	// (`from app import X`) resolve as siblings of the importer's package.
@@ -158,10 +158,7 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 			cfg.manifestPath = val
 		}
 	case directivePythonRoot:
-		// The directive marks the current package as the Python root. We
-		// store the workspace-relative path (`rel`) on the config; values
-		// to the directive itself are ignored, mirroring rules_python.
-		cfg.pythonRoot = rel
+		cfg.pythonRoot = pythonRootForDirective(rel, val)
 	case directiveResolveSiblingImports:
 		cfg.resolveSiblingImports = parseBool(val, cfg.resolveSiblingImports)
 	case directiveLabelNormalization:
@@ -194,6 +191,29 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 	case directiveSkipEmptyInit:
 		cfg.skipEmptyInit = parseBool(val, cfg.skipEmptyInit)
 	}
+}
+
+func pythonRootForDirective(rel, value string) string {
+	rel = strings.Trim(filepathToSlash(rel), "/")
+	if value == "" {
+		return rel
+	}
+
+	root := path.Clean(strings.Trim(filepathToSlash(value), "/"))
+	if root == "." {
+		return ""
+	}
+	if root == ".." || strings.HasPrefix(root, "../") {
+		return rel
+	}
+	if rel == root || strings.HasPrefix(rel, root+"/") {
+		return root
+	}
+	return rel
+}
+
+func filepathToSlash(value string) string {
+	return strings.ReplaceAll(value, "\\", "/")
 }
 
 func parseBool(val string, fallback bool) bool {
