@@ -27,6 +27,15 @@ custom_py_binary(
     ],
 )
 
+custom_py_binary(
+    name = "selected",
+    srcs = select({
+        "//conditions:default": ["selected.py"],
+    }),
+    main = "selected_cli.py",
+    deps = ["//manual:dep"],
+)
+
 workflow_job(
     name = "launch",
     main = "job_test.py",

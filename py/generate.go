@@ -558,6 +558,12 @@ func existingBinarySources(ownership *packageSourceOwnership, file *rule.File) m
 		}
 		sources, ok := ownership.sourcesForRule(r)
 		if !ok {
+			if r.Attr("main") != nil {
+				main := filepath.ToSlash(r.AttrString("main"))
+				if ownership.expander.contains(main) {
+					owned[main] = true
+				}
+			}
 			defaultMain := r.Name() + ".py"
 			if ownership.expander.contains(defaultMain) {
 				owned[defaultMain] = true

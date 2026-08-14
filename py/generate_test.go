@@ -890,6 +890,36 @@ py_binary(
 	}
 }
 
+func TestGeneratePerFileRules_NonliteralBinarySourcesOwnExplicitMain(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "tool",
+    main = "cli.py",
+    srcs = select({
+        "//conditions:default": ["tool.py"],
+    }),
+    deps = ["//manual:dep"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/cli.py"},
+		{RelPath: "pkg/tool.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/cli.py":  {Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/cli.py"}}},
+		"pkg/tool.py": {},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	if len(res.Gen) != 0 {
+		t.Fatalf("generated rules = %v, want explicit main and default entrypoint owned by unmanaged binary", ruleNames(res.Gen))
+	}
+}
+
 func TestGeneratePerFileRules_EmptyBinaryGlobRemainsUnmanaged(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `
