@@ -37,7 +37,7 @@ type ImportData struct {
 	config       *pyConfig         // package config snapshot captured before Gazelle's resolve phase
 }
 
-type packageLibraryOwner struct {
+type pythonLibraryOwner struct {
 	name    string
 	sources map[string]bool
 }
@@ -233,7 +233,7 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	skipTest := cfg.skipEmptyInit && facts.allEmptyInits(testSrcs)
 
 	var plans []rulePlan
-	var packageLibrary *packageLibraryOwner
+	var packageLibrary *pythonLibraryOwner
 
 	if len(libSrcs) > 0 && !skipLib {
 		r := rule.NewRule(cfg.libraryKind, libName)
@@ -256,7 +256,7 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 			preserveExistingDeps(r, ownership, libName, false)
 		}
 		plans = append(plans, rulePlan{rule: r, imports: data})
-		packageLibrary = &packageLibraryOwner{
+		packageLibrary = &pythonLibraryOwner{
 			name:    libName,
 			sources: sourceSet(importSrcs),
 		}
@@ -374,15 +374,15 @@ func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs 
 	return splitRulePlans(planHandRolledRules(cfg, c, rel, specs, facts, ownership, file, managed, nil), cfg)
 }
 
-func planHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool, packageLibrary *packageLibraryOwner) []rulePlan {
+func planHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool, packageLibrary *pythonLibraryOwner) []rulePlan {
 	return planExistingPythonRules(cfg, c, rel, specs, facts, ownership, file, managed, true, packageLibrary)
 }
 
-func planHandRolledBinaryRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, packageLibrary *packageLibraryOwner) []rulePlan {
+func planHandRolledBinaryRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, packageLibrary *pythonLibraryOwner) []rulePlan {
 	return planExistingPythonRules(cfg, c, rel, specs, facts, ownership, file, nil, false, packageLibrary)
 }
 
-func planExistingPythonRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool, includeLibrariesAndTests bool, packageLibrary *packageLibraryOwner) []rulePlan {
+func planExistingPythonRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool, includeLibrariesAndTests bool, packageLibrary *pythonLibraryOwner) []rulePlan {
 	if file == nil {
 		return nil
 	}
@@ -416,8 +416,8 @@ func planExistingPythonRules(cfg *pyConfig, c *config.Config, rel string, specs 
 		data := ImportData{Imports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
 		if isBinary {
 			kind = defaultBinaryKind
-			if packageLibraryOwnsSources(packageLibrary, er.Name(), srcs) {
-				data = ImportData{IncludeDeps: []string{":" + packageLibrary.name}}
+			if library := binarySourceLibraryOwner(ownership, packageLibrary, er.Name(), srcs); library != nil {
+				data = ImportData{IncludeDeps: []string{":" + library.name}}
 			}
 		} else if isTest {
 			kind = cfg.testKind
@@ -435,8 +435,42 @@ func planExistingPythonRules(cfg *pyConfig, c *config.Config, rel string, specs 
 	return plans
 }
 
-func packageLibraryOwnsSources(owner *packageLibraryOwner, binaryName string, srcs []string) bool {
-	if owner == nil || owner.name == binaryName || len(srcs) == 0 {
+func binarySourceLibraryOwner(ownership *packageSourceOwnership, generated *pythonLibraryOwner, binaryName string, srcs []string) *pythonLibraryOwner {
+	if len(srcs) == 0 {
+		return nil
+	}
+
+	owners := map[string]*pythonLibraryOwner{}
+	if libraryOwnsSources(generated, binaryName, srcs) {
+		owners[generated.name] = generated
+	}
+	if ownership != nil && ownership.file != nil {
+		for _, r := range ownership.file.Rules {
+			ok, isTest := ownership.isPythonRule(r)
+			if !ok || isTest || r.Name() == binaryName {
+				continue
+			}
+			ownedSources, ok := ownership.sourcesForRule(r)
+			if !ok {
+				continue
+			}
+			owner := &pythonLibraryOwner{name: r.Name(), sources: sourceSet(ownedSources)}
+			if libraryOwnsSources(owner, binaryName, srcs) {
+				owners[owner.name] = owner
+			}
+		}
+	}
+	if len(owners) != 1 {
+		return nil
+	}
+	for _, owner := range owners {
+		return owner
+	}
+	return nil
+}
+
+func libraryOwnsSources(owner *pythonLibraryOwner, binaryName string, srcs []string) bool {
+	if owner == nil || owner.name == binaryName {
 		return false
 	}
 	for _, src := range srcs {

@@ -1,7 +1,18 @@
-load("//tools:python_defs.bzl", "custom_py_binary")
+load("//tools:python_defs.bzl", "custom_py_binary", "custom_py_library")
 
 custom_py_binary(
     name = "cli",
     main = "entry.py",
+    deps = ["//stale:dep"],
+)
+
+custom_py_library(
+    name = "standalone_lib",
+    srcs = ["standalone.py"],
+)
+
+custom_py_binary(
+    name = "standalone",
+    main = "standalone.py",
     deps = ["//stale:dep"],
 )
