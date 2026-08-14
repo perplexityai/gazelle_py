@@ -222,7 +222,7 @@ import baz
 
 ## Import resolution
 
-For each import the resolver walks a "possible modules" ladder, trying progressively shorter dotted prefixes (`a.b.c.d` -> `a.b.c` -> `a.b` -> `a`). At each prefix it checks every source in order before stepping shorter - that ordering matters: a single `# gazelle:resolve py <broad> <label>` directive must not steal an import that's actually a deeper, more specific submodule provided by another rule.
+For each import the resolver walks a "possible modules" ladder, trying progressively shorter dotted prefixes (`a.b.c.d` -> `a.b.c` -> `a.b` -> `a`). At each prefix it checks every source in order before stepping shorter - that ordering matters: a single `# gazelle:resolve py <broad> <label>` directive must not steal an import that's actually a deeper, more specific submodule provided by another rule. When a manifest is configured without a project dependency file, imports absent from the manifest are left unresolved instead of producing labels for packages that may not exist.
 
 ```mermaid
 flowchart TD

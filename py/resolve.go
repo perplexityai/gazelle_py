@@ -399,6 +399,9 @@ func (ctx *resolverContext) resolveOneUncached(moduleName string, fromPart strin
 	if dep := ctx.existingPipDepForDist(dist); dep != "" {
 		return dep
 	}
+	if ctx.cfg.manifestPath != "" && len(ctx.packageDeps) == 0 {
+		return ""
+	}
 	if len(ctx.packageDeps) > 0 && !ctx.packageDeps[declared] {
 		return ""
 	}

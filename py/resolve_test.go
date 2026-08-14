@@ -303,6 +303,41 @@ dependencies = ["fallback-only"]
 	}
 }
 
+func TestResolveManifestWithoutProjectDepsDoesNotInventPipDependency(t *testing.T) {
+	cfg := newPyConfig()
+	cfg.manifestPath = "gazelle_python.yaml"
+	l := &pyLang{}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "gazelle_python.yaml"), []byte(`
+manifest:
+  pip_repository:
+    name: pip_ai_training
+  modules_mapping:
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &config.Config{
+		RepoRoot: root,
+		Exts:     map[string]interface{}{languageName: cfg},
+	}
+	(&resolve.Configurer{}).RegisterFlags(flag.NewFlagSet("test", flag.ContinueOnError), "", c)
+	ix := resolve.NewRuleIndex(nil)
+	r := rule.NewRule(cfg.libraryKind, "pkg")
+
+	l.Resolve(
+		c,
+		ix,
+		nil,
+		r,
+		ImportData{Imports: []ImportStatement{{ImportPath: "optional_dependency.module"}}},
+		label.Label{Pkg: "pkg", Name: "pkg"},
+	)
+
+	if got := r.AttrStrings("deps"); len(got) != 0 {
+		t.Fatalf("deps = %v, want unmapped import omitted", got)
+	}
+}
+
 func TestResolvePrunesUnusedExistingPipDep(t *testing.T) {
 	cfg := newPyConfig()
 	l := &pyLang{}
