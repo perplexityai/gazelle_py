@@ -256,9 +256,11 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 			preserveExistingDeps(r, ownership, libName, false)
 		}
 		plans = append(plans, rulePlan{rule: r, imports: data})
-		packageLibrary = &pythonLibraryOwner{
-			name:    libName,
-			sources: sourceSet(importSrcs),
+		if libraryTargetNameAvailable(ownership, libName) {
+			packageLibrary = &pythonLibraryOwner{
+				name:    libName,
+				sources: sourceSet(importSrcs),
+			}
 		}
 	}
 
@@ -364,6 +366,20 @@ func sourceSet(srcs []string) map[string]bool {
 		set[filepath.ToSlash(src)] = true
 	}
 	return set
+}
+
+func libraryTargetNameAvailable(ownership *packageSourceOwnership, name string) bool {
+	if ownership == nil || ownership.file == nil {
+		return true
+	}
+	for _, r := range ownership.file.Rules {
+		if r.Name() != name {
+			continue
+		}
+		ok, isTest := ownership.isPythonRule(r)
+		return ok && !isTest
+	}
+	return true
 }
 
 func handOwnedPythonSources(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, file *rule.File, managed map[string]bool) map[string]bool {

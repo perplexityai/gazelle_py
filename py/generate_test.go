@@ -1332,6 +1332,47 @@ pplx_python_binary(
 	}
 }
 
+func TestGenerateAggregateRules_BinaryIgnoresCollidingNonLibraryTarget(t *testing.T) {
+	cfg := newPyConfig()
+	c := &config.Config{KindMap: map[string]config.MappedKind{
+		"py_binary": {KindName: "pplx_python_binary"},
+	}}
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:python_defs.bzl", "pplx_python_binary")
+load(":custom_test.bzl", "custom_test")
+
+pplx_python_binary(
+    name = "tool",
+    main = "tool.py",
+    deps = ["//stale:dep"],
+)
+
+custom_test(
+    name = "pkg",
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/tool.py"}}
+	toolImports := []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/tool.py"}}
+	results := map[string]FileImports{"pkg/tool.py": {Modules: toolImports}}
+
+	res := generateAggregateRules(cfg, c, "pkg", specs, results, file, true)
+
+	for i, r := range res.Gen {
+		if r.Name() != "tool" || r.Kind() != defaultBinaryKind {
+			continue
+		}
+		binaryImports := res.Imports[i].(ImportData)
+		if !reflect.DeepEqual(binaryImports.Imports, toolImports) {
+			t.Fatalf("binary imports = %v, want %v", binaryImports.Imports, toolImports)
+		}
+		if len(binaryImports.IncludeDeps) != 0 {
+			t.Fatalf("binary include deps = %v, want no dependency on colliding custom target", binaryImports.IncludeDeps)
+		}
+		return
+	}
+	t.Fatalf("missing generated binary dependency plan; got %v", ruleNames(res.Gen))
+}
+
 func TestGenerateAggregateRules_UnmappedPythonMainOwnsEntrypoint(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `
