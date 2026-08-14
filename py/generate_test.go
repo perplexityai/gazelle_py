@@ -1267,7 +1267,7 @@ pplx_python_test_package(
 	}
 }
 
-func TestGenerateAggregateRules_MappedPythonBinaryMainStaysInLibraryAndReceivesImports(t *testing.T) {
+func TestGenerateAggregateRules_MappedPythonBinaryDependsOnOwningLibrary(t *testing.T) {
 	cfg := newPyConfig()
 	c := &config.Config{KindMap: map[string]config.MappedKind{
 		"py_binary": {KindName: "pplx_python_binary"},
@@ -1280,24 +1280,35 @@ pplx_python_binary(
     main = "tool.py",
 )
 `)
-	specs := []FileSpec{{RelPath: "pkg/tool.py"}}
+	specs := []FileSpec{
+		{RelPath: "pkg/__init__.py"},
+		{RelPath: "pkg/tool.py"},
+	}
 	toolImports := []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/tool.py"}}
-	results := map[string]FileImports{"pkg/tool.py": {Modules: toolImports}}
+	results := map[string]FileImports{
+		"pkg/__init__.py": {},
+		"pkg/tool.py":     {Modules: toolImports},
+	}
 
 	res := generateAggregateRules(cfg, c, "pkg", specs, results, file, true)
 
 	var lib *rule.Rule
-	for _, r := range res.Gen {
+	var libImports ImportData
+	for i, r := range res.Gen {
 		if r.Name() == "pkg" {
 			lib = r
+			libImports = res.Imports[i].(ImportData)
 			break
 		}
 	}
 	if lib == nil {
 		t.Fatalf("missing generated package library; got %v", ruleNames(res.Gen))
 	}
-	if srcs := lib.AttrStrings("srcs"); !reflect.DeepEqual(srcs, []string{"tool.py"}) {
-		t.Fatalf("package library srcs = %v, want [tool.py]", srcs)
+	if srcs := lib.AttrStrings("srcs"); !reflect.DeepEqual(srcs, []string{"__init__.py", "tool.py"}) {
+		t.Fatalf("package library srcs = %v, want [__init__.py tool.py]", srcs)
+	}
+	if !reflect.DeepEqual(libImports.Imports, toolImports) {
+		t.Fatalf("package library imports = %v, want %v", libImports.Imports, toolImports)
 	}
 
 	var binaryImports ImportData
@@ -1313,8 +1324,11 @@ pplx_python_binary(
 	if !foundBinary {
 		t.Fatalf("missing generated binary dependency plan; got %v", ruleNames(res.Gen))
 	}
-	if !reflect.DeepEqual(binaryImports.Imports, toolImports) {
-		t.Fatalf("binary imports = %v, want %v", binaryImports.Imports, toolImports)
+	if len(binaryImports.Imports) != 0 {
+		t.Fatalf("binary imports = %v, want package library to carry entrypoint imports", binaryImports.Imports)
+	}
+	if !reflect.DeepEqual(binaryImports.IncludeDeps, []string{":pkg"}) {
+		t.Fatalf("binary include deps = %v, want [:pkg]", binaryImports.IncludeDeps)
 	}
 }
 
