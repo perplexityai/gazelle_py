@@ -225,7 +225,7 @@ func TestResolvePreserveDepsLeavesExistingDeps(t *testing.T) {
 
 func TestResolvePrefersExistingPipDepRepo(t *testing.T) {
 	cfg := newPyConfig()
-	cfg.pipLinkPattern = "@pip_ai_training//{pkg}"
+	cfg.pipLinkPattern = "@pip_project//{pkg}"
 	cfg.pipLinkPatternExplicit = true
 	l := &pyLang{}
 	root := t.TempDir()
@@ -269,7 +269,7 @@ func TestResolvePyProjectFallbackUsesManifestRepo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "gazelle_python.yaml"), []byte(`
 manifest:
   pip_repository:
-    name: pip_ai_training
+    name: pip_project
   modules_mapping:
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -297,7 +297,7 @@ dependencies = ["fallback-only"]
 		label.Label{Pkg: "pkg", Name: "pkg"},
 	)
 
-	want := []string{"@pip_ai_training//fallback_only"}
+	want := []string{"@pip_project//fallback_only"}
 	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("deps = %v, want pyproject fallback dep from manifest repo %v", got, want)
 	}
@@ -311,7 +311,7 @@ func TestResolveManifestWithoutProjectDepsDoesNotInventPipDependency(t *testing.
 	if err := os.WriteFile(filepath.Join(root, "gazelle_python.yaml"), []byte(`
 manifest:
   pip_repository:
-    name: pip_ai_training
+    name: pip_project
   modules_mapping:
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -584,7 +584,7 @@ func TestConftestImportsFor(t *testing.T) {
 
 func TestConftestImportsFor_NestedPythonRoot(t *testing.T) {
 	root := t.TempDir()
-	conftest := filepath.Join(root, "data", "tests", "conftest.py")
+	conftest := filepath.Join(root, "projects", "tests", "conftest.py")
 	if err := os.MkdirAll(filepath.Dir(conftest), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -592,11 +592,11 @@ func TestConftestImportsFor_NestedPythonRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := conftestImportsFor(root, "data/tests/etl/common", "data/tests", "")
+	got := conftestImportsFor(root, "projects/tests/integration/common", "projects/tests", "")
 	want := []ImportStatement{{
 		ImportPath: "conftest",
 		From:       "conftest",
-		SourceFile: filepath.Join("data", "tests", "conftest.py"),
+		SourceFile: filepath.Join("projects", "tests", "conftest.py"),
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("conftestImportsFor() = %+v, want %+v", got, want)
@@ -605,7 +605,7 @@ func TestConftestImportsFor_NestedPythonRoot(t *testing.T) {
 
 func TestConftestImportsFor_ImportPrefix(t *testing.T) {
 	root := t.TempDir()
-	conftest := filepath.Join(root, "data", "ai_training", "conftest.py")
+	conftest := filepath.Join(root, "src", "acme", "conftest.py")
 	if err := os.MkdirAll(filepath.Dir(conftest), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -613,11 +613,11 @@ func TestConftestImportsFor_ImportPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := conftestImportsFor(root, "data/ai_training/common", "data/ai_training", "ai_training")
+	got := conftestImportsFor(root, "src/acme/common", "src/acme", "acme")
 	want := []ImportStatement{{
-		ImportPath: "ai_training.conftest",
-		From:       "ai_training.conftest",
-		SourceFile: filepath.Join("data", "ai_training", "conftest.py"),
+		ImportPath: "acme.conftest",
+		From:       "acme.conftest",
+		SourceFile: filepath.Join("src", "acme", "conftest.py"),
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("conftestImportsFor() = %+v, want %+v", got, want)

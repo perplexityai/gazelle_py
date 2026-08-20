@@ -185,7 +185,7 @@ func TestImports_ConftestNarrowSpec(t *testing.T) {
 
 func TestImports_ModuleAtPythonRoot(t *testing.T) {
 	root := t.TempDir()
-	pkgDir := filepath.Join(root, "data", "tests")
+	pkgDir := filepath.Join(root, "projects", "tests")
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -194,10 +194,10 @@ func TestImports_ModuleAtPythonRoot(t *testing.T) {
 	}
 
 	cfg := newPyConfig()
-	cfg.pythonRoot = "data/tests"
+	cfg.pythonRoot = "projects/tests"
 	l := &pyLang{}
 	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: cfg}}
-	f := rule.EmptyFile("data/tests/BUILD.bazel", "data/tests")
+	f := rule.EmptyFile("projects/tests/BUILD.bazel", "projects/tests")
 	r := rule.NewRule(defaultLibraryKind, conftestTargetName)
 	r.SetAttr("srcs", []string{conftestFilename})
 
@@ -208,9 +208,9 @@ func TestImports_ModuleAtPythonRoot(t *testing.T) {
 	}
 }
 
-func TestImports_ModuleAtExplicitAncestorPythonRoot(t *testing.T) {
+func TestImports_ModuleAtExplicitPythonRootPath(t *testing.T) {
 	root := t.TempDir()
-	pkgDir := filepath.Join(root, "data", "ai_training", "common")
+	pkgDir := filepath.Join(root, "projects", "runtime", "common")
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -221,17 +221,17 @@ func TestImports_ModuleAtExplicitAncestorPythonRoot(t *testing.T) {
 	cfg := newPyConfig()
 	applyDirective(
 		cfg,
-		rule.Directive{Key: directivePythonRoot, Value: "data"},
-		"data/ai_training",
+		rule.Directive{Key: directivePythonRootPath, Value: "projects"},
+		"projects/runtime",
 	)
 	l := &pyLang{}
 	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: cfg}}
-	f := rule.EmptyFile("data/ai_training/common/BUILD.bazel", "data/ai_training/common")
+	f := rule.EmptyFile("projects/runtime/common/BUILD.bazel", "projects/runtime/common")
 	r := rule.NewRule(defaultLibraryKind, "common")
 	r.SetAttr("srcs", []string{"utils.py"})
 
 	got := importPaths(l.Imports(c, r, f))
-	want := []string{"ai_training.common.utils"}
+	want := []string{"runtime.common.utils"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Imports() = %v, want %v", got, want)
 	}
@@ -239,7 +239,7 @@ func TestImports_ModuleAtExplicitAncestorPythonRoot(t *testing.T) {
 
 func TestImports_ModuleWithImportPrefix(t *testing.T) {
 	root := t.TempDir()
-	pkgDir := filepath.Join(root, "data", "ai_training", "common")
+	pkgDir := filepath.Join(root, "src", "acme", "common")
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -248,16 +248,16 @@ func TestImports_ModuleWithImportPrefix(t *testing.T) {
 	}
 
 	cfg := newPyConfig()
-	cfg.pythonRoot = "data/ai_training"
-	cfg.importPrefix = "ai_training"
+	cfg.pythonRoot = "src/acme"
+	cfg.importPrefix = "acme"
 	l := &pyLang{}
 	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: cfg}}
-	f := rule.EmptyFile("data/ai_training/common/BUILD.bazel", "data/ai_training/common")
+	f := rule.EmptyFile("src/acme/common/BUILD.bazel", "src/acme/common")
 	r := rule.NewRule(defaultLibraryKind, "common")
 	r.SetAttr("srcs", []string{"utils.py"})
 
 	got := importPaths(l.Imports(c, r, f))
-	want := []string{"ai_training.common.utils"}
+	want := []string{"acme.common.utils"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Imports() = %v, want %v", got, want)
 	}

@@ -1,5 +1,5 @@
-from ai_training.common.utils import normalize
-from data.scripts.tool import render
+from acme.common.utils import normalize
+from src.tools.tool import render
 
 
 def run(value: str) -> str:

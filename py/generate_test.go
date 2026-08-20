@@ -722,19 +722,19 @@ func TestGeneratePerFileRules_ConftestTestonly(t *testing.T) {
 func TestGeneratePerFileRules_ExistingMappedBinariesOwnEntrypointAndReceiveImports(t *testing.T) {
 	cfg := newPyConfig()
 	c := &config.Config{KindMap: map[string]config.MappedKind{
-		defaultBinaryKind: {KindName: "pplx_python_binary"},
+		defaultBinaryKind: {KindName: "custom_py_binary"},
 	}}
 	file := mustLoadBuildFile(t, "pkg", `
-load("//tools:python_defs.bzl", "pplx_python_binary")
+load("//tools:python_defs.bzl", "custom_py_binary")
 
-pplx_python_binary(
+custom_py_binary(
     name = "cli",
     main = "cli.py",
     deps = ["//stale:dep"],
 )
 
-pplx_python_binary(
-    name = "cli_harbor",
+custom_py_binary(
+    name = "cli_variant",
     main = "cli.py",
 )
 `)
@@ -766,13 +766,13 @@ pplx_python_binary(
 	if got := byName["cli"]; got == nil || got.kind != defaultBinaryKind {
 		t.Fatalf(":cli = %+v, want generated %s rule", got, defaultBinaryKind)
 	}
-	if got := byName["cli_harbor"]; got == nil || got.kind != defaultBinaryKind {
-		t.Fatalf(":cli_harbor = %+v, want generated %s rule", got, defaultBinaryKind)
+	if got := byName["cli_variant"]; got == nil || got.kind != defaultBinaryKind {
+		t.Fatalf(":cli_variant = %+v, want generated %s rule", got, defaultBinaryKind)
 	}
 	if got := byName["helper"]; got == nil || got.kind != defaultLibraryKind {
 		t.Fatalf(":helper = %+v, want generated %s rule", got, defaultLibraryKind)
 	}
-	for _, name := range []string{"cli", "cli_harbor"} {
+	for _, name := range []string{"cli", "cli_variant"} {
 		if got := importsByName[name].Imports; !reflect.DeepEqual(got, cliImports) {
 			t.Errorf(":%s imports = %v, want %v", name, got, cliImports)
 		}
@@ -1398,12 +1398,12 @@ pplx_python_test_package(
 func TestGenerateAggregateRules_MappedPythonBinaryDependsOnOwningLibrary(t *testing.T) {
 	cfg := newPyConfig()
 	c := &config.Config{KindMap: map[string]config.MappedKind{
-		"py_binary": {KindName: "pplx_python_binary"},
+		"py_binary": {KindName: "custom_py_binary"},
 	}}
 	file := mustLoadBuildFile(t, "pkg", `
-load("//tools:python_defs.bzl", "pplx_python_binary")
+load("//tools:python_defs.bzl", "custom_py_binary")
 
-pplx_python_binary(
+custom_py_binary(
     name = "tool",
     main = "tool.py",
 )
