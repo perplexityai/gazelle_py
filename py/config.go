@@ -84,6 +84,11 @@ type pyConfig struct {
 	// extensions: file extensions treated as Python source.
 	extensions []string
 
+	// mainOwnerKinds lists custom rule kinds whose local Python main is a
+	// source-ownership boundary. Gazelle does not manage dependencies for
+	// these rules unless they are also mapped from py_binary.
+	mainOwnerKinds map[string]bool
+
 	// pipLinkPattern is the template used for PyPI package labels, e.g.
 	// `@pip//{pkg}`. The literal `{pkg}` is replaced with the resolved
 	// distribution name (lowercased, hyphens → underscores).
@@ -155,6 +160,7 @@ func newPyConfig() *pyConfig {
 		visibility:         append([]string(nil), defaultVisibility...),
 		testPatterns:       append([]string(nil), defaultTestPatterns...),
 		extensions:         append([]string(nil), defaultExtensions...),
+		mainOwnerKinds:     map[string]bool{},
 		pipLinkPattern:     defaultPipLinkPattern,
 		labelNormalization: snakeCaseNormalization,
 	}
@@ -167,5 +173,9 @@ func (c *pyConfig) clone() *pyConfig {
 	cp.visibility = append([]string(nil), c.visibility...)
 	cp.testPatterns = append([]string(nil), c.testPatterns...)
 	cp.extensions = append([]string(nil), c.extensions...)
+	cp.mainOwnerKinds = make(map[string]bool, len(c.mainOwnerKinds))
+	for kind := range c.mainOwnerKinds {
+		cp.mainOwnerKinds[kind] = true
+	}
 	return &cp
 }

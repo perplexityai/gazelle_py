@@ -1,3 +1,4 @@
 # gazelle:map_kind py_binary custom_py_binary //tools:python_defs.bzl
 # gazelle:map_kind py_library custom_py_library //tools:python_defs.bzl
+# gazelle:python_main_owner_kind workflow_job
 # gazelle:python_generation_mode file

@@ -965,8 +965,9 @@ py_library(
 	}
 }
 
-func TestGenerateAggregateRules_UnmappedWrapperDelegatesMainToLibraryDependency(t *testing.T) {
+func TestGenerateAggregateRules_ConfiguredWrapperDelegatesMainToLibraryDependency(t *testing.T) {
 	cfg := newPyConfig()
+	cfg.mainOwnerKinds["custom_launcher"] = true
 	file := mustLoadBuildFile(t, "pkg", `
 load("//tools:defs.bzl", "custom_launcher")
 load("@rules_python//python:defs.bzl", "py_library")
@@ -1500,8 +1501,9 @@ custom_test(
 	t.Fatalf("missing generated binary dependency plan; got %v", ruleNames(res.Gen))
 }
 
-func TestGenerateAggregateRules_UnmappedPythonMainOwnsEntrypoint(t *testing.T) {
+func TestGenerateAggregateRules_ConfiguredPythonMainOwnsEntrypoint(t *testing.T) {
 	cfg := newPyConfig()
+	cfg.mainOwnerKinds["workflow_job"] = true
 	file := mustLoadBuildFile(t, "pkg", `
 workflow_job(
     name = "launch",
@@ -1535,6 +1537,38 @@ workflow_job(
 	if srcs := lib.AttrStrings("srcs"); !reflect.DeepEqual(srcs, []string{"helper.py"}) {
 		t.Fatalf("package library srcs = %v, want [helper.py]", srcs)
 	}
+}
+
+func TestGenerateAggregateRules_UnconfiguredPythonMainDoesNotOwnEntrypoint(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+workflow_job(
+    name = "launch",
+    main = "job.py",
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/helper.py"},
+		{RelPath: "pkg/job.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/helper.py": {},
+		"pkg/job.py":    {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	for _, r := range res.Gen {
+		if r.Name() != "pkg" {
+			continue
+		}
+		want := []string{"helper.py", "job.py"}
+		if got := r.AttrStrings("srcs"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("package library srcs = %v, want %v", got, want)
+		}
+		return
+	}
+	t.Fatalf("missing generated package library; got %v", ruleNames(res.Gen))
 }
 
 func TestGenerateAggregateRules_FilegroupGlobOwnsResourceSources(t *testing.T) {

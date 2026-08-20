@@ -25,6 +25,7 @@ const (
 	directiveVisibility      = "python_visibility"
 	directiveTestPattern     = "python_test_file_pattern"
 	directiveSourceExtension = "python_source_extension"
+	directiveMainOwnerKind   = "python_main_owner_kind"
 	directiveLabelConvention = "python_label_convention"
 	// directiveManifest points at a gazelle_python.yaml file (relative to repo
 	// root) whose `modules_mapping` overrides our internal import → distribution
@@ -72,6 +73,7 @@ func (l *pyLang) KnownDirectives() []string {
 		directiveVisibility,
 		directiveTestPattern,
 		directiveSourceExtension,
+		directiveMainOwnerKind,
 		directiveLabelConvention,
 		directiveManifest,
 		directivePythonRoot,
@@ -151,6 +153,10 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 	case directiveSourceExtension:
 		if val != "" {
 			cfg.extensions = appendUnique(cfg.extensions, val)
+		}
+	case directiveMainOwnerKind:
+		for _, kind := range splitFields(val) {
+			cfg.mainOwnerKinds[kind] = true
 		}
 	case directiveLabelConvention:
 		if val != "" {

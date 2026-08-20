@@ -213,14 +213,15 @@ func (o *packageSourceOwnership) isPythonSourceOwner(r *rule.Rule) bool {
 	if isPythonTestPackageRule(r) {
 		return true
 	}
-	if o.isUnmappedPythonMainOwner(r) {
+	if o.isConfiguredPythonMainOwner(r) {
 		return true
 	}
 	return strings.Contains(r.Kind(), "test") && (r.Attr("srcs") != nil || len(r.AttrStrings("file_patterns")) > 0)
 }
 
-func (o *packageSourceOwnership) isUnmappedPythonMainOwner(r *rule.Rule) bool {
+func (o *packageSourceOwnership) isConfiguredPythonMainOwner(r *rule.Rule) bool {
 	return !o.isPythonBinaryRule(r) &&
+		o.cfg.mainOwnerKinds[r.Kind()] &&
 		r.Attr("main") != nil &&
 		o.expander.contains(r.AttrString("main")) &&
 		!o.mainOwnedByLocalLibraryDependency(r)
@@ -265,13 +266,13 @@ func localDependencyName(dep string, pkg string) (string, bool) {
 	return "", false
 }
 
-func (o *packageSourceOwnership) unmappedPythonMainSources() map[string]bool {
+func (o *packageSourceOwnership) configuredPythonMainSources() map[string]bool {
 	owned := map[string]bool{}
 	if o.file == nil {
 		return owned
 	}
 	for _, r := range o.file.Rules {
-		if !o.isUnmappedPythonMainOwner(r) {
+		if !o.isConfiguredPythonMainOwner(r) {
 			continue
 		}
 		owned[filepath.ToSlash(r.AttrString("main"))] = true
@@ -290,7 +291,7 @@ func (o *packageSourceOwnership) sourcesOwnedByRule(r *rule.Rule) ([]string, boo
 		return o.expander.all(), true
 	}
 	srcs, ok := o.sourcesForRule(r)
-	if !ok || !o.isUnmappedPythonMainOwner(r) {
+	if !ok || !o.isConfiguredPythonMainOwner(r) {
 		return srcs, ok
 	}
 
