@@ -2,6 +2,7 @@ package py
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -253,7 +254,11 @@ func localDependencyName(dep string, pkg string) (string, bool) {
 	if strings.HasPrefix(dep, ":") {
 		return strings.TrimPrefix(dep, ":"), true
 	}
-	prefix := "//" + pkg + ":"
+	packageLabel := "//" + pkg
+	if pkg != "" && dep == packageLabel {
+		return path.Base(pkg), true
+	}
+	prefix := packageLabel + ":"
 	if strings.HasPrefix(dep, prefix) {
 		return strings.TrimPrefix(dep, prefix), true
 	}

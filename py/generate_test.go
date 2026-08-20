@@ -975,7 +975,7 @@ custom_launcher(
     name = "launch",
     main = "entry.py",
     deps = [
-        ":pkg",
+        "//pkg",
         "//manual:dep",
     ],
 )
@@ -1003,6 +1003,30 @@ py_library(
 	want := []string{"entry.py", "helper.py"}
 	if lib.Name() != "pkg" || !reflect.DeepEqual(lib.AttrStrings("srcs"), want) {
 		t.Fatalf("generated library = %s %v, want pkg %v", lib.Name(), lib.AttrStrings("srcs"), want)
+	}
+}
+
+func TestLocalDependencyName(t *testing.T) {
+	tests := []struct {
+		name string
+		dep  string
+		pkg  string
+		want string
+		ok   bool
+	}{
+		{name: "relative", dep: ":library", pkg: "pkg/sub", want: "library", ok: true},
+		{name: "qualified", dep: "//pkg/sub:library", pkg: "pkg/sub", want: "library", ok: true},
+		{name: "package default", dep: "//pkg/sub", pkg: "pkg/sub", want: "sub", ok: true},
+		{name: "other package", dep: "//pkg/other", pkg: "pkg/sub"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := localDependencyName(test.dep, test.pkg)
+			if got != test.want || ok != test.ok {
+				t.Fatalf("localDependencyName(%q, %q) = (%q, %t), want (%q, %t)", test.dep, test.pkg, got, ok, test.want, test.ok)
+			}
+		})
 	}
 }
 
