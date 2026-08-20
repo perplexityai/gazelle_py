@@ -5,7 +5,7 @@ py_library(
     srcs = ["main.py"],
     visibility = ["//visibility:public"],
     deps = [
-        "//data/ai_training/common",
-        "//data/scripts",
+        "//projects/runtime/common",
+        "//projects/tools",
     ],
 )

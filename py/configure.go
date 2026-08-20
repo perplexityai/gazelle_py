@@ -2,6 +2,8 @@ package py
 
 import (
 	"flag"
+	"fmt"
+	"log"
 	"path"
 	"strings"
 
@@ -32,10 +34,12 @@ const (
 	// table. Set this when working with rules_python's pip_parse, which is
 	// already configured to read the same file.
 	directiveManifest = "python_manifest_file_name"
-	// directivePythonRoot marks the current Bazel package, or an explicitly
-	// named ancestor, as the Python project root. Explicit ancestors let a
-	// child subtree inherit the root without changing sibling packages.
+	// directivePythonRoot marks the current Bazel package as the Python project
+	// root, matching rules_python's value-less directive.
 	directivePythonRoot = "python_root"
+	// directivePythonRootPath sets the Python project root to an explicit
+	// workspace-relative ancestor of the declaring package.
+	directivePythonRootPath = "python_root_path"
 	// directiveImportPrefix prepends a dotted package prefix to modules under
 	// the active Python root.
 	directiveImportPrefix = "python_import_prefix"
@@ -77,6 +81,7 @@ func (l *pyLang) KnownDirectives() []string {
 		directiveLabelConvention,
 		directiveManifest,
 		directivePythonRoot,
+		directivePythonRootPath,
 		directiveImportPrefix,
 		directiveResolveSiblingImports,
 		directiveLabelNormalization,
@@ -168,7 +173,13 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 			cfg.manifestPath = val
 		}
 	case directivePythonRoot:
-		cfg.pythonRoot = pythonRootForDirective(rel, val)
+		cfg.pythonRoot = strings.Trim(filepathToSlash(rel), "/")
+	case directivePythonRootPath:
+		root, err := pythonRootPathForDirective(rel, val)
+		if err != nil {
+			log.Fatalf("invalid %s %q in //%s: %v", directivePythonRootPath, val, rel, err)
+		}
+		cfg.pythonRoot = root
 	case directiveImportPrefix:
 		cfg.importPrefix = strings.Trim(val, ".")
 	case directiveResolveSiblingImports:
@@ -205,23 +216,27 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 	}
 }
 
-func pythonRootForDirective(rel, value string) string {
+func pythonRootPathForDirective(rel, value string) (string, error) {
 	rel = strings.Trim(filepathToSlash(rel), "/")
+	value = strings.TrimSpace(filepathToSlash(value))
 	if value == "" {
-		return rel
+		return "", fmt.Errorf("value must name a workspace-relative ancestor of //%s", rel)
+	}
+	if strings.HasPrefix(value, "/") {
+		return "", fmt.Errorf("%q is absolute; want a workspace-relative ancestor of //%s", value, rel)
 	}
 
-	root := path.Clean(strings.Trim(filepathToSlash(value), "/"))
+	root := path.Clean(value)
 	if root == "." {
-		return ""
+		return "", nil
 	}
 	if root == ".." || strings.HasPrefix(root, "../") {
-		return rel
+		return "", fmt.Errorf("%q traverses outside the workspace", value)
 	}
 	if rel == root || strings.HasPrefix(rel, root+"/") {
-		return root
+		return root, nil
 	}
-	return rel
+	return "", fmt.Errorf("%q is not an ancestor of //%s", value, rel)
 }
 
 func filepathToSlash(value string) string {

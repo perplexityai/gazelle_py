@@ -98,12 +98,9 @@ func TestApplyDirective_PythonRoot(t *testing.T) {
 		value string
 		want  string
 	}{
-		{name: "current package", rel: "backend", want: "backend"},
-		{name: "explicit ancestor", rel: "data/ai_training", value: "data", want: "data"},
-		{name: "normalized ancestor", rel: "data/ai_training/common", value: "/data/./", want: "data"},
-		{name: "workspace root", rel: "tools/python", value: ".", want: ""},
-		{name: "reject parent traversal", rel: "backend", value: "../other", want: "backend"},
-		{name: "reject unrelated root", rel: "backend", value: "frontend", want: "backend"},
+		{name: "current package", rel: "services/api", want: "services/api"},
+		{name: "value ignored for compatibility", rel: "services/api", value: "services", want: "services/api"},
+		{name: "workspace root", rel: "", want: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -116,11 +113,44 @@ func TestApplyDirective_PythonRoot(t *testing.T) {
 	}
 }
 
+func TestPythonRootPathForDirective(t *testing.T) {
+	tests := []struct {
+		name    string
+		rel     string
+		value   string
+		want    string
+		wantErr bool
+	}{
+		{name: "ancestor", rel: "projects/runtime", value: "projects", want: "projects"},
+		{name: "same package", rel: "projects/runtime", value: "projects/runtime", want: "projects/runtime"},
+		{name: "normalized ancestor", rel: "projects/runtime/service", value: "projects/./", want: "projects"},
+		{name: "workspace root", rel: "projects/runtime", value: ".", want: ""},
+		{name: "windows separators", rel: "projects/runtime", value: `projects\`, want: "projects"},
+		{name: "empty", rel: "projects/runtime", wantErr: true},
+		{name: "absolute", rel: "projects/runtime", value: "/projects", wantErr: true},
+		{name: "parent traversal", rel: "projects/runtime", value: "../projects", wantErr: true},
+		{name: "unrelated", rel: "projects/runtime", value: "services", wantErr: true},
+		{name: "descendant", rel: "projects/runtime", value: "projects/runtime/service", wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := pythonRootPathForDirective(test.rel, test.value)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("pythonRootPathForDirective(%q, %q) error = %v, wantErr %t", test.rel, test.value, err, test.wantErr)
+			}
+			if got != test.want {
+				t.Fatalf("pythonRootPathForDirective(%q, %q) = %q, want %q", test.rel, test.value, got, test.want)
+			}
+		})
+	}
+}
+
 func TestApplyDirective_ImportPrefix(t *testing.T) {
 	cfg := newPyConfig()
-	applyDirective(cfg, rule.Directive{Key: directiveImportPrefix, Value: ".ai_training."}, "data/ai_training")
-	if cfg.importPrefix != "ai_training" {
-		t.Fatalf("python_import_prefix: cfg.importPrefix = %q, want %q", cfg.importPrefix, "ai_training")
+	applyDirective(cfg, rule.Directive{Key: directiveImportPrefix, Value: ".acme."}, "src/acme")
+	if cfg.importPrefix != "acme" {
+		t.Fatalf("python_import_prefix: cfg.importPrefix = %q, want %q", cfg.importPrefix, "acme")
 	}
 }
 

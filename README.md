@@ -183,11 +183,11 @@ The Rust crate at [`crates/import_extractor`](crates/import_extractor) is built 
 
 All configuration is via `# gazelle:<key> <value>` directives in `BUILD.bazel` files (they inherit into subdirectories). Directive keys mirror [rules_python's gazelle plugin](https://rules-python.readthedocs.io/en/latest/gazelle/docs/index.html) so you can swap between the two without rewriting BUILD-file directives.
 
-The plugin has backward-compatible extensions: `python_source_extension`
-adds extensions beyond rules_python's hardcoded `.py`/`.pyi`, and
-`python_root` accepts an optional explicit ancestor path so a subtree may share
-an import root without changing sibling packages. `python_import_prefix`
-supports nested source roots that still export a named top-level package.
+The plugin has extensions beyond rules_python's directives:
+`python_source_extension` adds source suffixes beyond `.py`/`.pyi`,
+`python_root_path` lets a subtree use an explicit ancestor as its import root
+without changing sibling packages, and `python_import_prefix` supports nested
+source roots that still export a named top-level package.
 
 | Directive | Default | Notes |
 |---|---|---|
@@ -204,8 +204,9 @@ supports nested source roots that still export a named top-level package.
 | `python_skip_empty_init` | `false` | When true, skip emitting a library rule when every source is an empty, comments-only, or docstring-only `__init__.py` - covers both a single-file package and a project-mode rollup of nested empty inits. Mixed packages still emit the rule and keep `__init__.py` in `srcs` so relative imports (`from . import x`) resolve. |
 | `python_label_convention` | `@pip//{pkg}` | Template; `{pkg}` is replaced with the resolved distribution name. |
 | `python_manifest_file_name` | _(empty)_ | Workspace-relative path to a `gazelle_python.yaml` (rules_python format). When set, its `modules_mapping` overrides built-in import -> distribution heuristics. Its `pip_repository.name` supplies the pip repo for generated labels unless `python_label_convention` was explicitly set, in which case the explicit label convention controls the repo segment. |
-| `python_root` | _(workspace root)_ | Marks the current package as the Python project root: dotted import paths under it are interpreted relative to this directory. Set on a parent BUILD file in monorepos with multiple Python projects sharing one workspace (e.g. `backend/`, `tools/python/`). An optional workspace-relative ancestor path scopes that root to the directive's subtree, e.g. `# gazelle:python_root data` in `data/ai_training/BUILD.bazel`; an empty value retains rules_python's current-package behavior. |
-| `python_import_prefix` | _(empty)_ | Prepends a dotted package prefix after stripping `python_root`. For example, `# gazelle:python_root` plus `# gazelle:python_import_prefix ai_training` in `data/ai_training/BUILD.bazel` indexes `common/utils.py` as `ai_training.common.utils` without changing sibling packages under `data/`. |
+| `python_root` | _(workspace root)_ | Marks the current package as the Python project root: dotted import paths under it are interpreted relative to this directory. The directive is value-less, matching rules_python. Set it on a parent BUILD file when every descendant should share that root. |
+| `python_root_path` | _(empty)_ | Sets the Python project root to a workspace-relative ancestor of the declaring package. For example, `# gazelle:python_root_path projects` in `projects/runtime/BUILD.bazel` makes `projects/runtime/common/utils.py` provide `runtime.common.utils` without changing `projects/tools`. Invalid, absolute, traversing, descendant, and unrelated paths are rejected. |
+| `python_import_prefix` | _(empty)_ | Prepends a dotted package prefix after stripping the active Python root. For example, `# gazelle:python_root` plus `# gazelle:python_import_prefix acme` in `src/acme/BUILD.bazel` indexes `common/utils.py` as `acme.common.utils`. |
 | `python_resolve_sibling_imports` | `false` | When true, bare-module imports (`from app import X`) resolve as siblings of the importer's package. Lets a sibling `app.py` resolve to the local library even when the test references it as a top-level module name. Off by default to match rules_python and avoid surprising cross-package matches. |
 | `python_label_normalization` | `snake_case` | How distribution names are normalized when rendering pip labels: `snake_case` (default; lowercase + `[-.]` -> `_`), `pep503` (lowercase + runs of `[-_.]` -> `-`), or `none` (identity). Pick `pep503` if your pip repo keys directly on PEP 503 names. |
 
