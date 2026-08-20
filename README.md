@@ -186,8 +186,9 @@ All configuration is via `# gazelle:<key> <value>` directives in `BUILD.bazel` f
 The plugin has extensions beyond rules_python's directives:
 `python_source_extension` adds source suffixes beyond `.py`/`.pyi`,
 `python_root_path` lets a subtree use an explicit ancestor as its import root
-without changing sibling packages, and `python_import_prefix` supports nested
-source roots that still export a named top-level package.
+without changing sibling packages, `python_import_prefix` supports nested
+source roots that still export a named top-level package, and
+`python_main_owner_kind` makes custom entrypoint ownership explicit.
 
 | Directive | Default | Notes |
 |---|---|---|

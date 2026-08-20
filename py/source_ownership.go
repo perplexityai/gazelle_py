@@ -290,12 +290,16 @@ func (o *packageSourceOwnership) sourcesOwnedByRule(r *rule.Rule) ([]string, boo
 	if isPythonTestPackageRule(r) && r.Attr("srcs") == nil && len(r.AttrStrings("file_patterns")) == 0 && r.Attr("main") == nil {
 		return o.expander.all(), true
 	}
+	isMainOwner := o.isConfiguredPythonMainOwner(r)
 	srcs, ok := o.sourcesForRule(r)
-	if !ok || !o.isConfiguredPythonMainOwner(r) {
+	if !isMainOwner {
 		return srcs, ok
 	}
 
 	main := filepath.ToSlash(r.AttrString("main"))
+	if !ok {
+		return []string{main}, true
+	}
 	for _, src := range srcs {
 		if filepath.ToSlash(src) == main {
 			return srcs, true

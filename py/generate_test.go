@@ -1539,6 +1539,44 @@ workflow_job(
 	}
 }
 
+func TestGenerateAggregateRules_ConfiguredPythonMainOwnsEntrypointWithNonliteralSources(t *testing.T) {
+	cfg := newPyConfig()
+	cfg.mainOwnerKinds["workflow_job"] = true
+	file := mustLoadBuildFile(t, "pkg", `
+workflow_job(
+    name = "launch",
+    main = "job.py",
+    srcs = select({
+        "//conditions:default": ["config.py"],
+    }),
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/config.py"},
+		{RelPath: "pkg/helper.py"},
+		{RelPath: "pkg/job.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/config.py": {},
+		"pkg/helper.py": {},
+		"pkg/job.py":    {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	for _, r := range res.Gen {
+		if r.Name() != "pkg" {
+			continue
+		}
+		want := []string{"config.py", "helper.py"}
+		if got := r.AttrStrings("srcs"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("package library srcs = %v, want %v", got, want)
+		}
+		return
+	}
+	t.Fatalf("missing generated package library; got %v", ruleNames(res.Gen))
+}
+
 func TestGenerateAggregateRules_UnconfiguredPythonMainDoesNotOwnEntrypoint(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `
