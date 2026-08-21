@@ -147,15 +147,11 @@ func (o *packageSourceOwnership) sourcesForRule(r *rule.Rule) ([]string, bool) {
 	var srcs []string
 	switch {
 	case r.Attr("srcs") != nil:
-		if glob, ok := rule.ParseGlobExpr(r.Attr("srcs")); ok {
-			srcs = o.expander.expand(glob.Patterns, glob.Excludes)
-		} else {
-			explicit := r.AttrStrings("srcs")
-			if len(explicit) == 0 {
-				return nil, false
-			}
-			srcs = filterPythonSources(explicit, o.cfg)
+		explicit := r.AttrStrings("srcs")
+		if len(explicit) == 0 {
+			return nil, false
 		}
+		srcs = filterPythonSources(explicit, o.cfg)
 	case r.Attr("main") != nil:
 		srcs = filterPythonSources([]string{r.AttrString("main")}, o.cfg)
 	case len(r.AttrStrings("file_patterns")) > 0:
@@ -318,16 +314,10 @@ func isResourceOwnerRule(r *rule.Rule) bool {
 
 func (o *packageSourceOwnership) resourcePythonSourcesOwnedByRule(r *rule.Rule) ([]string, bool) {
 	patterns := r.AttrStrings("srcs")
-	var excludes []string
 	if len(patterns) == 0 {
-		glob, ok := rule.ParseGlobExpr(r.Attr("srcs"))
-		if !ok {
-			return nil, false
-		}
-		patterns = glob.Patterns
-		excludes = glob.Excludes
+		return nil, false
 	}
-	return o.expander.expand(patterns, excludes), true
+	return o.expander.expand(patterns, nil), true
 }
 
 func (o *packageSourceOwnership) preservesSourceAttrs(name string, isTest bool) bool {

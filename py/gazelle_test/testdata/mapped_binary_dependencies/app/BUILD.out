@@ -21,10 +21,7 @@ custom_py_binary(
 custom_py_binary(
     name = "batch",
     srcs = glob(["batch_*.py"]),
-    deps = [
-        ":helper",
-        "@pip//requests",
-    ],
+    deps = ["//stale:dep"],
 )
 
 custom_py_binary(
@@ -39,6 +36,20 @@ custom_py_binary(
 workflow_job(
     name = "launch",
     main = "job_test.py",
+)
+
+custom_py_library(
+    name = "batch_runner",
+    srcs = ["batch_runner.py"],
+    visibility = ["//visibility:public"],
+    deps = ["@pip//requests"],
+)
+
+custom_py_library(
+    name = "batch_worker",
+    srcs = ["batch_worker.py"],
+    visibility = ["//visibility:public"],
+    deps = [":helper"],
 )
 
 custom_py_library(
