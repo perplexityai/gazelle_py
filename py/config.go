@@ -108,13 +108,8 @@ type pyConfig struct {
 	// the Python module tree. All dotted import paths are interpreted relative
 	// to this prefix when registering libraries in the RuleIndex. Empty means
 	// "the workspace root itself", which is the most common single-project
-	// layout. Set to the declaring package via `python_root`, or to an explicit
-	// workspace-relative ancestor via `python_root_path`.
+	// layout. Set to the declaring package via `python_root`.
 	pythonRoot string
-	// importPrefix is prepended to module paths after stripping pythonRoot.
-	// This models source layouts where a nested project root still exports a
-	// named top-level package.
-	importPrefix string
 
 	// resolveSiblingImports controls whether bare-module imports
 	// (`from app import X`) are resolved as siblings of the importer's

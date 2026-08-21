@@ -10,6 +10,7 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+	bzl "github.com/bazelbuild/buildtools/build"
 	"github.com/bmatcuk/doublestar/v4"
 )
 
@@ -32,7 +33,7 @@ type ImportData struct {
 	TestImports  []ImportStatement // test-file imports
 	Ignore       map[string]bool   // module names to skip during resolution
 	IncludeDeps  []string          // labels to always add to deps
-	PreserveDeps bool              // keep existing deps when source analysis was incomplete
+	PreserveDeps bool              // keep existing deps when source or dependency analysis is incomplete
 	ExistingDeps []string          // deps already present on the merged target
 	config       *pyConfig         // package config snapshot captured before Gazelle's resolve phase
 }
@@ -40,6 +41,25 @@ type ImportData struct {
 type pythonLibraryOwner struct {
 	name    string
 	sources map[string]bool
+}
+
+type preservedExpr struct {
+	expr bzl.Expr
+}
+
+var _ rule.BzlExprValue = preservedExpr{}
+var _ rule.Merger = preservedExpr{}
+
+func (p preservedExpr) BzlExpr() bzl.Expr {
+	return p.expr
+}
+
+// Merge keeps opaque hand-written expressions out of Gazelle's list merger.
+func (p preservedExpr) Merge(other bzl.Expr) bzl.Expr {
+	if other != nil {
+		return other
+	}
+	return p.expr
 }
 
 // GenerateRules walks a directory's files, partitions them into source vs.
@@ -190,8 +210,8 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	}
 	facts := newSourceFacts(rel, specs, results)
 	ownership := newSpecPackageSourceOwnership(cfg, c, rel, specs, file, managed)
-	leaveLibUnmanaged := ownership.leavesExistingRuleUnmanaged(libName, false)
-	leaveTestUnmanaged := ownership.leavesExistingRuleUnmanaged(testName, true)
+	leaveLibUnmanaged := ownership.hasComputedSourceAttrs(libName, false)
+	leaveTestUnmanaged := ownership.hasComputedSourceAttrs(testName, true)
 	handOwned := ownership.handOwnedSources()
 	binaryOwned := existingBinarySources(ownership, file)
 	existingLibSources := existingSourceSet(ownership, libName, false)
@@ -276,7 +296,7 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 		}
 	}
 
-	if hasConftest && !ownership.leavesExistingRuleUnmanaged(conftestTargetName, false) {
+	if hasConftest && !ownership.hasComputedSourceAttrs(conftestTargetName, false) {
 		r := rule.NewRule(cfg.libraryKind, conftestTargetName)
 		r.SetAttr("srcs", []string{conftestFilename})
 		r.SetAttr("testonly", true)
@@ -289,6 +309,9 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,
 		}, ownership, conftestTargetName, false)
+		if data.PreserveDeps {
+			preserveExistingDeps(r, ownership, conftestTargetName, false)
+		}
 		plans = append(plans, rulePlan{
 			rule:    r,
 			imports: data,
@@ -370,14 +393,18 @@ func importDataForSources(facts *sourceFacts, srcs []string, isTest bool) Import
 }
 
 func preserveExistingDeps(r *rule.Rule, ownership *packageSourceOwnership, name string, isTest bool) {
-	deps, ok := ownership.existingRuleDeps(name, isTest)
-	if !ok {
+	existing := ownership.existingPythonRule(name, isTest)
+	if existing == nil || existing.Attr("deps") == nil {
 		return
 	}
-	r.SetAttr("deps", deps)
+	r.SetAttr("deps", preservedExpr{expr: existing.Attr("deps")})
 }
 
 func withExistingDeps(data ImportData, ownership *packageSourceOwnership, name string, isTest bool) ImportData {
+	if ownership.hasComputedDeps(name, isTest) {
+		data.PreserveDeps = true
+		return data
+	}
 	deps, ok := ownership.existingRuleDeps(name, isTest)
 	if !ok {
 		return data
@@ -609,7 +636,7 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 			}
 		}
 		ruleName := perFileRuleName(srcName)
-		if ownership.leavesExistingRuleUnmanaged(ruleName, false) {
+		if ownership.hasComputedSourceAttrs(ruleName, false) {
 			continue
 		}
 		r := rule.NewRule(cfg.libraryKind, ruleName)
@@ -630,6 +657,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,
 		}, ownership, ruleName, false)
+		if data.PreserveDeps {
+			preserveExistingDeps(r, ownership, ruleName, false)
+		}
 		plans = append(plans, rulePlan{
 			rule:    r,
 			imports: data,
@@ -656,7 +686,7 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 		if !strings.HasSuffix(ruleName, "_test") {
 			ruleName += "_test"
 		}
-		if ownership.leavesExistingRuleUnmanaged(ruleName, true) {
+		if ownership.hasComputedSourceAttrs(ruleName, true) {
 			continue
 		}
 		r := rule.NewRule(cfg.testKind, ruleName)
@@ -671,6 +701,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,
 		}, ownership, ruleName, true)
+		if data.PreserveDeps {
+			preserveExistingDeps(r, ownership, ruleName, true)
+		}
 		plans = append(plans, rulePlan{
 			rule:    r,
 			imports: data,

@@ -162,7 +162,7 @@ func TestImports_FilePatternDoesNotProvideExplicitSiblingSrcs(t *testing.T) {
 	}
 }
 
-func TestImports_FilePatternDoesNotProvideResourceSrcs(t *testing.T) {
+func TestImports_FilePatternIncludesSourcesAlsoStagedAsResources(t *testing.T) {
 	root := t.TempDir()
 	pkgDir := filepath.Join(root, "pkg")
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
@@ -185,7 +185,7 @@ func TestImports_FilePatternDoesNotProvideResourceSrcs(t *testing.T) {
 	f.Rules = []*rule.Rule{lib, resources}
 
 	got := importPaths(l.Imports(c, lib, f))
-	want := []string{"pkg.app"}
+	want := []string{"pkg.app", "pkg.payload"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("file-pattern Imports() = %v, want %v", got, want)
 	}
@@ -231,61 +231,6 @@ func TestImports_ModuleAtPythonRoot(t *testing.T) {
 
 	got := importPaths(l.Imports(c, r, f))
 	want := []string{"conftest"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Imports() = %v, want %v", got, want)
-	}
-}
-
-func TestImports_ModuleAtExplicitPythonRootPath(t *testing.T) {
-	root := t.TempDir()
-	pkgDir := filepath.Join(root, "projects", "runtime", "common")
-	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "utils.py"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := newPyConfig()
-	applyDirective(
-		cfg,
-		rule.Directive{Key: directivePythonRootPath, Value: "projects"},
-		"projects/runtime",
-	)
-	l := &pyLang{}
-	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: cfg}}
-	f := rule.EmptyFile("projects/runtime/common/BUILD.bazel", "projects/runtime/common")
-	r := rule.NewRule(defaultLibraryKind, "common")
-	r.SetAttr("srcs", []string{"utils.py"})
-
-	got := importPaths(l.Imports(c, r, f))
-	want := []string{"runtime.common.utils"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Imports() = %v, want %v", got, want)
-	}
-}
-
-func TestImports_ModuleWithImportPrefix(t *testing.T) {
-	root := t.TempDir()
-	pkgDir := filepath.Join(root, "src", "acme", "common")
-	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "utils.py"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := newPyConfig()
-	cfg.pythonRoot = "src/acme"
-	cfg.importPrefix = "acme"
-	l := &pyLang{}
-	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: cfg}}
-	f := rule.EmptyFile("src/acme/common/BUILD.bazel", "src/acme/common")
-	r := rule.NewRule(defaultLibraryKind, "common")
-	r.SetAttr("srcs", []string{"utils.py"})
-
-	got := importPaths(l.Imports(c, r, f))
-	want := []string{"acme.common.utils"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Imports() = %v, want %v", got, want)
 	}

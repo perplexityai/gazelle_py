@@ -2,11 +2,7 @@ package py
 
 import (
 	"flag"
-	"fmt"
-	"log"
-	"path"
 	"strings"
-	"unicode"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/rule"
@@ -38,12 +34,6 @@ const (
 	// directivePythonRoot marks the current Bazel package as the Python project
 	// root, matching rules_python's value-less directive.
 	directivePythonRoot = "python_root"
-	// directivePythonRootPath sets the Python project root to an explicit
-	// workspace-relative ancestor of the declaring package.
-	directivePythonRootPath = "python_root_path"
-	// directiveImportPrefix prepends a dotted package prefix to modules under
-	// the active Python root.
-	directiveImportPrefix = "python_import_prefix"
 	// directiveResolveSiblingImports toggles whether bare-module imports
 	// (`from app import X`) resolve as siblings of the importer's package.
 	directiveResolveSiblingImports = "python_resolve_sibling_imports"
@@ -82,8 +72,6 @@ func (l *pyLang) KnownDirectives() []string {
 		directiveLabelConvention,
 		directiveManifest,
 		directivePythonRoot,
-		directivePythonRootPath,
-		directiveImportPrefix,
 		directiveResolveSiblingImports,
 		directiveLabelNormalization,
 		directiveGenerationMode,
@@ -174,19 +162,7 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 			cfg.manifestPath = val
 		}
 	case directivePythonRoot:
-		cfg.pythonRoot = strings.Trim(filepathToSlash(rel), "/")
-	case directivePythonRootPath:
-		root, err := pythonRootPathForDirective(rel, val)
-		if err != nil {
-			log.Fatalf("invalid %s %q in //%s: %v", directivePythonRootPath, val, rel, err)
-		}
-		cfg.pythonRoot = root
-	case directiveImportPrefix:
-		prefix, err := pythonImportPrefixForDirective(val)
-		if err != nil {
-			log.Fatalf("invalid %s %q in //%s: %v", directiveImportPrefix, val, rel, err)
-		}
-		cfg.importPrefix = prefix
+		cfg.pythonRoot = rel
 	case directiveResolveSiblingImports:
 		cfg.resolveSiblingImports = parseBool(val, cfg.resolveSiblingImports)
 	case directiveLabelNormalization:
@@ -219,64 +195,6 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 	case directiveSkipEmptyInit:
 		cfg.skipEmptyInit = parseBool(val, cfg.skipEmptyInit)
 	}
-}
-
-func pythonRootPathForDirective(rel, value string) (string, error) {
-	rel = strings.Trim(filepathToSlash(rel), "/")
-	value = strings.TrimSpace(filepathToSlash(value))
-	if value == "" {
-		return "", fmt.Errorf("value must name a workspace-relative ancestor of //%s", rel)
-	}
-	if strings.HasPrefix(value, "/") {
-		return "", fmt.Errorf("%q is absolute; want a workspace-relative ancestor of //%s", value, rel)
-	}
-	for _, segment := range strings.Split(value, "/") {
-		if segment == ".." {
-			return "", fmt.Errorf("%q contains parent traversal", value)
-		}
-	}
-
-	root := path.Clean(value)
-	if root == "." {
-		return "", nil
-	}
-	if root == ".." || strings.HasPrefix(root, "../") {
-		return "", fmt.Errorf("%q traverses outside the workspace", value)
-	}
-	if rel == root || strings.HasPrefix(rel, root+"/") {
-		return root, nil
-	}
-	return "", fmt.Errorf("%q is not an ancestor of //%s", value, rel)
-}
-
-func pythonImportPrefixForDirective(value string) (string, error) {
-	prefix := strings.Trim(strings.TrimSpace(value), ".")
-	if prefix == "" {
-		return "", nil
-	}
-	for _, segment := range strings.Split(prefix, ".") {
-		if !isPythonIdentifier(segment) {
-			return "", fmt.Errorf("%q is not a dotted Python identifier", value)
-		}
-	}
-	return prefix, nil
-}
-
-func isPythonIdentifier(value string) bool {
-	for i, r := range value {
-		if r == '_' || unicode.IsLetter(r) {
-			continue
-		}
-		if i > 0 && (unicode.IsDigit(r) || unicode.In(r, unicode.Mn, unicode.Mc, unicode.Pc)) {
-			continue
-		}
-		return false
-	}
-	return value != ""
-}
-
-func filepathToSlash(value string) string {
-	return strings.ReplaceAll(value, "\\", "/")
 }
 
 func parseBool(val string, fallback bool) bool {

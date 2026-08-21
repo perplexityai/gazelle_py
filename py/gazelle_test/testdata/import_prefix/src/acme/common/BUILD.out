@@ -1,7 +1,0 @@
-load("@rules_python//python:defs.bzl", "py_library")
-
-py_library(
-    name = "common",
-    srcs = ["utils.py"],
-    visibility = ["//visibility:public"],
-)

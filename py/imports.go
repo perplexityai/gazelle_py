@@ -32,7 +32,7 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 		return nil
 	}
 
-	pkg := modulePackagePath(f.Pkg, cfg.pythonRoot, cfg.importPrefix)
+	pkg := modulePackagePath(f.Pkg, cfg.pythonRoot)
 
 	ownership := newDiskPackageSourceOwnership(l, cfg, c, f)
 	srcs, ok := ownership.sourcesForRule(r)
@@ -59,18 +59,11 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 	return specs
 }
 
-func modulePackagePath(pkg, pythonRoot, importPrefix string) string {
+func modulePackagePath(pkg, pythonRoot string) string {
 	rel := pkg
 	if pythonRoot != "" {
 		rel = strings.TrimPrefix(rel, pythonRoot)
 		rel = strings.TrimPrefix(rel, "/")
 	}
-	dotted := strings.ReplaceAll(rel, "/", ".")
-	if importPrefix == "" {
-		return dotted
-	}
-	if dotted == "" {
-		return importPrefix
-	}
-	return importPrefix + "." + dotted
+	return strings.ReplaceAll(rel, "/", ".")
 }

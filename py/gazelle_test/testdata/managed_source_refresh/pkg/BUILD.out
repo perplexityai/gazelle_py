@@ -7,6 +7,7 @@ py_library(
         "worker.py",
     ],
     visibility = ["//visibility:public"],
+    deps = ["//manual:dep"] + EXTRA_DEPS,
 )
 
 py_library(

@@ -35,46 +35,17 @@ filegroup(
 	}
 }
 
-func TestResourcePythonSourcesOwnedByRuleUsesExactLocalLabels(t *testing.T) {
+func TestHandOwnedSourcesIgnoresResourceRules(t *testing.T) {
 	file := mustLoadBuildFile(t, "pkg", `
 filegroup(
     name = "resources",
-    srcs = [
-        ":payload.py",
-        "./selected.py",
-        "*.py",
-        "//other:external.py",
-        "../escaped.py",
-    ],
-)
-`)
-	ownership := newPackageSourceOwnership(
-		newPyConfig(),
-		nil,
-		file,
-		nil,
-		[]string{"payload.py", "selected.py", "visible.py"},
-	)
-
-	got, ok := ownership.resourcePythonSourcesOwnedByRule(file.Rules[0])
-	want := []string{"payload.py", "selected.py"}
-	if !ok || !reflect.DeepEqual(got, want) {
-		t.Fatalf("owned sources = %v, %v; want %v, true", got, ok, want)
-	}
-}
-
-func TestResourcePythonSourcesOwnedByRuleReservesKnownMixedListSources(t *testing.T) {
-	file := mustLoadBuildFile(t, "pkg", `
-filegroup(
-    name = "resources",
-    srcs = ["payload.py", GENERATED_SRCS],
+    srcs = ["payload.py"],
 )
 `)
 	ownership := newPackageSourceOwnership(newPyConfig(), nil, file, nil, []string{"payload.py"})
 
-	got, ok := ownership.resourcePythonSourcesOwnedByRule(file.Rules[0])
-	if want := []string{"payload.py"}; !ok || !reflect.DeepEqual(got, want) {
-		t.Fatalf("owned sources = %v, %v; want %v, true", got, ok, want)
+	if got := ownership.handOwnedSources(); len(got) != 0 {
+		t.Fatalf("hand-owned sources = %v, want resource rule ignored", got)
 	}
 }
 
@@ -89,6 +60,20 @@ pkg_tar(
 
 	if got := ownership.handOwnedSources(); len(got) != 0 {
 		t.Fatalf("hand-owned sources = %v, want unrecognized rule ignored", got)
+	}
+}
+
+func TestHandOwnedSourcesIgnoresUnmappedTestRules(t *testing.T) {
+	file := mustLoadBuildFile(t, "pkg", `
+custom_functional_test(
+    name = "integration_test",
+    srcs = ["test_app.py"],
+)
+`)
+	ownership := newPackageSourceOwnership(newPyConfig(), nil, file, nil, []string{"test_app.py"})
+
+	if got := ownership.handOwnedSources(); len(got) != 0 {
+		t.Fatalf("hand-owned sources = %v, want unmapped test rule ignored", got)
 	}
 }
 
