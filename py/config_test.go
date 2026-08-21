@@ -129,6 +129,7 @@ func TestPythonRootPathForDirective(t *testing.T) {
 		{name: "empty", rel: "projects/runtime", wantErr: true},
 		{name: "absolute", rel: "projects/runtime", value: "/projects", wantErr: true},
 		{name: "parent traversal", rel: "projects/runtime", value: "../projects", wantErr: true},
+		{name: "internal parent traversal", rel: "projects/runtime", value: "projects/runtime/..", wantErr: true},
 		{name: "unrelated", rel: "projects/runtime", value: "services", wantErr: true},
 		{name: "descendant", rel: "projects/runtime", value: "projects/runtime/service", wantErr: true},
 	}
@@ -151,6 +152,32 @@ func TestApplyDirective_ImportPrefix(t *testing.T) {
 	applyDirective(cfg, rule.Directive{Key: directiveImportPrefix, Value: ".acme."}, "src/acme")
 	if cfg.importPrefix != "acme" {
 		t.Fatalf("python_import_prefix: cfg.importPrefix = %q, want %q", cfg.importPrefix, "acme")
+	}
+}
+
+func TestPythonImportPrefixForDirective(t *testing.T) {
+	tests := []struct {
+		value   string
+		want    string
+		wantErr bool
+	}{
+		{value: ".acme.tools.", want: "acme.tools"},
+		{value: "münchen.tools", want: "münchen.tools"},
+		{},
+		{value: "acme..tools", wantErr: true},
+		{value: "acme/tools", wantErr: true},
+		{value: "acme tools", wantErr: true},
+		{value: "9acme", wantErr: true},
+	}
+
+	for _, test := range tests {
+		got, err := pythonImportPrefixForDirective(test.value)
+		if (err != nil) != test.wantErr {
+			t.Errorf("pythonImportPrefixForDirective(%q) error = %v, wantErr %t", test.value, err, test.wantErr)
+		}
+		if got != test.want {
+			t.Errorf("pythonImportPrefixForDirective(%q) = %q, want %q", test.value, got, test.want)
+		}
 	}
 }
 

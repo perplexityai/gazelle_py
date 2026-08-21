@@ -9,6 +9,7 @@ import (
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+	bzl "github.com/bazelbuild/buildtools/build"
 	"github.com/bmatcuk/doublestar/v4"
 )
 
@@ -130,10 +131,16 @@ func (o *packageSourceOwnership) handOwnedSources() map[string]bool {
 		}
 		srcs, ok := o.sourcesOwnedByRule(r)
 		if !ok {
-			continue
+			if !isResourceOwnerRule(r) && !o.isPythonSourceOwner(r) {
+				continue
+			}
+			srcs = o.knownLiteralPythonSources(r)
 		}
 		for _, src := range srcs {
-			owned[filepath.ToSlash(src)] = true
+			source := normalizeLocalSource(src)
+			if source != "" && o.expander.contains(source) {
+				owned[source] = true
+			}
 		}
 	}
 	return owned
@@ -144,24 +151,37 @@ func (o *packageSourceOwnership) sourcesForRule(r *rule.Rule) ([]string, bool) {
 		return append([]string(nil), srcs...), true
 	}
 
+	main, mainIsLiteral := literalStringAttr(r, "main")
+	if !mainIsLiteral {
+		return nil, false
+	}
+
 	var srcs []string
 	switch {
 	case r.Attr("srcs") != nil:
-		explicit := r.AttrStrings("srcs")
-		if len(explicit) == 0 {
+		explicit, ok := literalStringListAttr(r, "srcs")
+		if !ok || len(explicit) == 0 {
 			return nil, false
 		}
-		srcs = filterPythonSources(explicit, o.cfg)
+		srcs = o.normalizeKnownLocalPythonSources(filterPythonSources(explicit, o.cfg))
 	case r.Attr("main") != nil:
-		srcs = filterPythonSources([]string{r.AttrString("main")}, o.cfg)
-	case len(r.AttrStrings("file_patterns")) > 0:
-		srcs = o.expander.expand(r.AttrStrings("file_patterns"), r.AttrStrings("ignore_patterns"))
+		srcs = o.normalizeKnownLocalPythonSources(filterPythonSources([]string{main}, o.cfg))
+	case r.Attr("file_patterns") != nil:
+		patterns, ok := literalStringListAttr(r, "file_patterns")
+		if !ok || len(patterns) == 0 {
+			return nil, false
+		}
+		ignorePatterns, ok := literalStringListAttr(r, "ignore_patterns")
+		if !ok {
+			return nil, false
+		}
+		srcs = o.expander.expand(patterns, ignorePatterns)
 		srcs = o.excludeExplicitSiblingSources(r, srcs)
 	default:
 		return nil, false
 	}
 	if o.isPythonBinaryRule(r) && r.Attr("main") != nil {
-		main := filepath.ToSlash(r.AttrString("main"))
+		main = normalizeLocalSource(main)
 		if isPythonFile(main, o.cfg) && !containsSource(srcs, main) {
 			srcs = append(srcs, main)
 			sort.Strings(srcs)
@@ -176,8 +196,12 @@ func (o *packageSourceOwnership) sourcesForRule(r *rule.Rule) ([]string, bool) {
 }
 
 func containsSource(sources []string, candidate string) bool {
+	candidate = normalizeLocalSource(candidate)
+	if candidate == "" {
+		return false
+	}
 	for _, source := range sources {
-		if filepath.ToSlash(source) == candidate {
+		if normalizeLocalSource(source) == candidate {
 			return true
 		}
 	}
@@ -212,14 +236,17 @@ func (o *packageSourceOwnership) isPythonSourceOwner(r *rule.Rule) bool {
 	if o.isConfiguredPythonMainOwner(r) {
 		return true
 	}
-	return strings.Contains(r.Kind(), "test") && (r.Attr("srcs") != nil || len(r.AttrStrings("file_patterns")) > 0)
+	return strings.Contains(r.Kind(), "test") && (r.Attr("srcs") != nil || r.Attr("file_patterns") != nil)
 }
 
 func (o *packageSourceOwnership) isConfiguredPythonMainOwner(r *rule.Rule) bool {
+	main, ok := literalStringAttr(r, "main")
+	main = normalizeLocalSource(main)
 	return !o.isPythonBinaryRule(r) &&
 		o.cfg.mainOwnerKinds[r.Kind()] &&
 		r.Attr("main") != nil &&
-		o.expander.contains(r.AttrString("main")) &&
+		ok &&
+		o.expander.contains(main) &&
 		!o.mainOwnedByLocalLibraryDependency(r)
 }
 
@@ -227,8 +254,15 @@ func (o *packageSourceOwnership) mainOwnedByLocalLibraryDependency(r *rule.Rule)
 	if o.file == nil {
 		return false
 	}
-	main := filepath.ToSlash(r.AttrString("main"))
-	for _, dep := range r.AttrStrings("deps") {
+	main, ok := literalStringAttr(r, "main")
+	if !ok {
+		return false
+	}
+	// Direct labels are safe ownership evidence even when the surrounding list
+	// also contains a computed element. Do not use the partial list for rewrites.
+	deps, _ := literalStringListAttr(r, "deps")
+	main = filepath.ToSlash(main)
+	for _, dep := range deps {
 		name, ok := localDependencyName(dep, o.file.Pkg)
 		if !ok {
 			continue
@@ -271,7 +305,8 @@ func (o *packageSourceOwnership) configuredPythonMainSources() map[string]bool {
 		if !o.isConfiguredPythonMainOwner(r) {
 			continue
 		}
-		owned[filepath.ToSlash(r.AttrString("main"))] = true
+		main, _ := literalStringAttr(r, "main")
+		owned[normalizeLocalSource(main)] = true
 	}
 	return owned
 }
@@ -283,7 +318,7 @@ func (o *packageSourceOwnership) sourcesOwnedByRule(r *rule.Rule) ([]string, boo
 	if !o.isPythonSourceOwner(r) {
 		return nil, false
 	}
-	if isPythonTestPackageRule(r) && r.Attr("srcs") == nil && len(r.AttrStrings("file_patterns")) == 0 && r.Attr("main") == nil {
+	if isPythonTestPackageRule(r) && r.Attr("srcs") == nil && r.Attr("file_patterns") == nil && r.Attr("main") == nil {
 		return o.expander.all(), true
 	}
 	isMainOwner := o.isConfiguredPythonMainOwner(r)
@@ -292,9 +327,15 @@ func (o *packageSourceOwnership) sourcesOwnedByRule(r *rule.Rule) ([]string, boo
 		return srcs, ok
 	}
 
-	main := filepath.ToSlash(r.AttrString("main"))
+	main, _ := literalStringAttr(r, "main")
+	main = filepath.ToSlash(main)
 	if !ok {
-		return []string{main}, true
+		srcs = o.knownLiteralPythonSources(r)
+		if !containsSource(srcs, main) {
+			srcs = append(srcs, normalizeLocalSource(main))
+			sort.Strings(srcs)
+		}
+		return srcs, true
 	}
 	for _, src := range srcs {
 		if filepath.ToSlash(src) == main {
@@ -313,16 +354,61 @@ func isResourceOwnerRule(r *rule.Rule) bool {
 }
 
 func (o *packageSourceOwnership) resourcePythonSourcesOwnedByRule(r *rule.Rule) ([]string, bool) {
-	patterns := r.AttrStrings("srcs")
-	if len(patterns) == 0 {
+	candidates, _ := literalStringListAttr(r, "srcs")
+	if len(candidates) == 0 {
 		return nil, false
 	}
-	return o.expander.expand(patterns, nil), true
+	seen := map[string]bool{}
+	var sources []string
+	for _, candidate := range candidates {
+		source := normalizeLocalSource(candidate)
+		if source == "" || !o.expander.contains(source) || seen[source] {
+			continue
+		}
+		seen[source] = true
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	return sources, true
+}
+
+func (o *packageSourceOwnership) knownLiteralPythonSources(r *rule.Rule) []string {
+	candidates, _ := literalStringListAttr(r, "srcs")
+	seen := map[string]bool{}
+	var sources []string
+	for _, candidate := range candidates {
+		source := normalizeLocalSource(candidate)
+		if source == "" || !o.expander.contains(source) || seen[source] {
+			continue
+		}
+		seen[source] = true
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	return sources
+}
+
+func (o *packageSourceOwnership) normalizeKnownLocalPythonSources(sources []string) []string {
+	normalized := make([]string, len(sources))
+	for i, source := range sources {
+		local := normalizeLocalSource(source)
+		if local != "" && o.expander.contains(local) {
+			normalized[i] = local
+			continue
+		}
+		normalized[i] = filepath.ToSlash(source)
+	}
+	sort.Strings(normalized)
+	return normalized
 }
 
 func (o *packageSourceOwnership) preservesSourceAttrs(name string, isTest bool) bool {
 	r := o.existingPythonRule(name, isTest)
-	return r != nil && len(r.AttrStrings("file_patterns")) > 0
+	if r == nil {
+		return false
+	}
+	patterns, ok := literalStringListAttr(r, "file_patterns")
+	return ok && len(patterns) > 0
 }
 
 func (o *packageSourceOwnership) existingExplicitRuleSources(name string, isTest bool) ([]string, bool) {
@@ -330,7 +416,11 @@ func (o *packageSourceOwnership) existingExplicitRuleSources(name string, isTest
 	if r == nil || r.Attr("srcs") == nil {
 		return nil, false
 	}
-	return filterPythonSources(r.AttrStrings("srcs"), o.cfg), true
+	srcs, ok := literalStringListAttr(r, "srcs")
+	if !ok {
+		return nil, false
+	}
+	return filterPythonSources(srcs, o.cfg), true
 }
 
 func (o *packageSourceOwnership) existingRuleDeps(name string, isTest bool) ([]string, bool) {
@@ -338,7 +428,11 @@ func (o *packageSourceOwnership) existingRuleDeps(name string, isTest bool) ([]s
 	if r == nil || r.Attr("deps") == nil {
 		return nil, false
 	}
-	return r.AttrStrings("deps"), true
+	deps, ok := literalStringListAttr(r, "deps")
+	if !ok {
+		return nil, false
+	}
+	return deps, true
 }
 
 func (o *packageSourceOwnership) existingRuleSources(name string, isTest bool) ([]string, bool) {
@@ -364,6 +458,20 @@ func (o *packageSourceOwnership) existingPythonRule(name string, isTest bool) *r
 		return r
 	}
 	return nil
+}
+
+func (o *packageSourceOwnership) leavesExistingRuleUnmanaged(name string, isTest bool) bool {
+	r := o.existingPythonRule(name, isTest)
+	if r == nil {
+		return false
+	}
+	for _, attr := range []string{"srcs", "file_patterns", "ignore_patterns", "deps"} {
+		if _, complete := literalStringListAttr(r, attr); !complete {
+			return true
+		}
+	}
+	_, mainIsLiteral := literalStringAttr(r, "main")
+	return !mainIsLiteral
 }
 
 func (o *packageSourceOwnership) excludeExplicitSiblingSources(r *rule.Rule, srcs []string) []string {
@@ -412,12 +520,71 @@ func (o *packageSourceOwnership) explicitSiblingSources(r *rule.Rule) map[string
 		if sibling.Attr("srcs") == nil {
 			continue
 		}
-		for _, src := range filterPythonSources(sibling.AttrStrings("srcs"), o.cfg) {
-			explicit[filepath.ToSlash(src)] = true
+		for _, source := range o.knownLiteralPythonSources(sibling) {
+			explicit[source] = true
 		}
 	}
 	o.explicitByRule[r] = explicit
 	return explicit
+}
+
+// literalStringListAttr returns direct string elements and reports whether
+// the attribute is absent or consists entirely of strings. It never evaluates
+// nested expressions such as glob, select, concatenation, or identifiers.
+func literalStringListAttr(r *rule.Rule, name string) ([]string, bool) {
+	expr := r.Attr(name)
+	if expr == nil {
+		return nil, true
+	}
+	list, ok := expr.(*bzl.ListExpr)
+	if !ok {
+		return nil, false
+	}
+	values := make([]string, len(list.List))
+	complete := true
+	n := 0
+	for _, item := range list.List {
+		value, ok := item.(*bzl.StringExpr)
+		if !ok {
+			complete = false
+			continue
+		}
+		values[n] = value.Value
+		n++
+	}
+	return values[:n], complete
+}
+
+// literalStringAttr reports absent attributes as complete and rejects every
+// non-string expression without evaluating it.
+func literalStringAttr(r *rule.Rule, name string) (string, bool) {
+	expr := r.Attr(name)
+	if expr == nil {
+		return "", true
+	}
+	value, ok := expr.(*bzl.StringExpr)
+	if !ok {
+		return "", false
+	}
+	return value.Value, true
+}
+
+func normalizeLocalSource(source string) string {
+	source = filepath.ToSlash(source)
+	if source == "" || strings.HasPrefix(source, "//") || strings.HasPrefix(source, "@") {
+		return ""
+	}
+	source = strings.TrimPrefix(source, ":")
+	source = strings.TrimPrefix(source, "./")
+	if source == "" || strings.HasPrefix(source, "/") {
+		return ""
+	}
+	for _, segment := range strings.Split(source, "/") {
+		if segment == ".." {
+			return ""
+		}
+	}
+	return source
 }
 
 func (l *pyLang) cachedPackagePythonSources(cfg *pyConfig, repoRoot string, pkg string) []string {

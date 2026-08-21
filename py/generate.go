@@ -190,7 +190,10 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	}
 	facts := newSourceFacts(rel, specs, results)
 	ownership := newSpecPackageSourceOwnership(cfg, c, rel, specs, file, managed)
+	leaveLibUnmanaged := ownership.leavesExistingRuleUnmanaged(libName, false)
+	leaveTestUnmanaged := ownership.leavesExistingRuleUnmanaged(testName, true)
 	handOwned := ownership.handOwnedSources()
+	binaryOwned := existingBinarySources(ownership, file)
 	existingLibSources := existingSourceSet(ownership, libName, false)
 	existingTestSources := existingSourceSet(ownership, testName, true)
 
@@ -215,6 +218,9 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 			continue
 		}
 		isTest := isTestFile(srcName, cfg)
+		if binaryOwned[srcKey] {
+			isTest = false
+		}
 		if existingTestSources[srcKey] {
 			isTest = true
 		} else if existingLibSources[srcKey] {
@@ -228,10 +234,10 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	}
 	sort.Strings(libSrcs)
 	sort.Strings(testSrcs)
-	if !ownership.preservesSourceAttrs(libName, false) {
+	if !leaveLibUnmanaged && !ownership.preservesSourceAttrs(libName, false) {
 		libSrcs = refreshManagedSources(ownership, libName, false, libSrcs, facts, handOwned)
 	}
-	if !ownership.preservesSourceAttrs(testName, true) {
+	if !leaveTestUnmanaged && !ownership.preservesSourceAttrs(testName, true) {
 		testSrcs = refreshManagedSources(ownership, testName, true, testSrcs, facts, handOwned)
 	}
 
@@ -241,7 +247,7 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	var plans []rulePlan
 	var packageLibrary *pythonLibraryOwner
 
-	if len(libSrcs) > 0 && !skipLib {
+	if len(libSrcs) > 0 && !skipLib && !leaveLibUnmanaged {
 		r := rule.NewRule(cfg.libraryKind, libName)
 		importSrcs := libSrcs
 		if ownership.preservesSourceAttrs(libName, false) {
@@ -270,7 +276,7 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 		}
 	}
 
-	if hasConftest {
+	if hasConftest && !ownership.leavesExistingRuleUnmanaged(conftestTargetName, false) {
 		r := rule.NewRule(cfg.libraryKind, conftestTargetName)
 		r.SetAttr("srcs", []string{conftestFilename})
 		r.SetAttr("testonly", true)
@@ -289,7 +295,7 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 		})
 	}
 
-	if len(testSrcs) > 0 && !skipTest {
+	if len(testSrcs) > 0 && !skipTest && !leaveTestUnmanaged {
 		r := rule.NewRule(cfg.testKind, testName)
 		importSrcs := testSrcs
 		if ownership.preservesSourceAttrs(testName, true) {
@@ -327,7 +333,10 @@ func refreshManagedSources(ownership *packageSourceOwnership, name string, isTes
 
 	refreshed := sourceSet(inferred)
 	for _, src := range existing {
-		key := filepath.ToSlash(src)
+		key := normalizeLocalSource(src)
+		if key == "" {
+			key = filepath.ToSlash(src)
+		}
 		if facts.contains(key) || handOwned[key] {
 			continue
 		}
@@ -380,7 +389,11 @@ func withExistingDeps(data ImportData, ownership *packageSourceOwnership, name s
 func existingSourceSet(ownership *packageSourceOwnership, name string, isTest bool) map[string]bool {
 	srcs, ok := ownership.existingRuleSources(name, isTest)
 	if !ok {
-		return nil
+		r := ownership.existingPythonRule(name, isTest)
+		if r == nil {
+			return nil
+		}
+		srcs = ownership.knownLiteralPythonSources(r)
 	}
 	set := make(map[string]bool, len(srcs))
 	for _, src := range srcs {
@@ -448,6 +461,10 @@ func planExistingPythonRules(cfg *pyConfig, c *config.Config, rel string, specs 
 		if !isBinary && (!includeLibrariesAndTests || !okRule) {
 			continue
 		}
+		existingDeps, depsAreLiteral := literalStringListAttr(er, "deps")
+		if !depsAreLiteral {
+			continue
+		}
 		srcs, ok := ownership.sourcesForRule(er)
 		if !ok {
 			continue
@@ -469,7 +486,7 @@ func planExistingPythonRules(cfg *pyConfig, c *config.Config, rel string, specs 
 			data = ImportData{TestImports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
 		}
 		if er.Attr("deps") != nil {
-			data.ExistingDeps = er.AttrStrings("deps")
+			data.ExistingDeps = existingDeps
 		}
 		r := rule.NewRule(kind, er.Name())
 		if !isBinary && er.Attr("srcs") != nil {
@@ -592,6 +609,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 			}
 		}
 		ruleName := perFileRuleName(srcName)
+		if ownership.leavesExistingRuleUnmanaged(ruleName, false) {
+			continue
+		}
 		r := rule.NewRule(cfg.libraryKind, ruleName)
 		r.SetAttr("srcs", []string{srcName})
 		if isConftestAtPackageRoot(srcName) {
@@ -636,6 +656,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 		if !strings.HasSuffix(ruleName, "_test") {
 			ruleName += "_test"
 		}
+		if ownership.leavesExistingRuleUnmanaged(ruleName, true) {
+			continue
+		}
 		r := rule.NewRule(cfg.testKind, ruleName)
 		r.SetAttr("srcs", []string{srcName})
 		var testMods []ImportStatement
@@ -670,8 +693,11 @@ func existingBinarySources(ownership *packageSourceOwnership, file *rule.File) m
 		}
 		sources, ok := ownership.sourcesForRule(r)
 		if !ok {
-			if r.Attr("main") != nil {
-				main := filepath.ToSlash(r.AttrString("main"))
+			for _, source := range ownership.knownLiteralPythonSources(r) {
+				owned[source] = true
+			}
+			if main, literal := literalStringAttr(r, "main"); literal && r.Attr("main") != nil {
+				main = normalizeLocalSource(main)
 				if ownership.expander.contains(main) {
 					owned[main] = true
 				}
@@ -683,7 +709,10 @@ func existingBinarySources(ownership *packageSourceOwnership, file *rule.File) m
 			continue
 		}
 		for _, source := range sources {
-			owned[filepath.ToSlash(source)] = true
+			source = normalizeLocalSource(source)
+			if source != "" && ownership.expander.contains(source) {
+				owned[source] = true
+			}
 		}
 	}
 	return owned

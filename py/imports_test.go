@@ -31,6 +31,34 @@ func TestImports_LibrarySpecs(t *testing.T) {
 	}
 }
 
+func TestImportsIndexesKnownSourcesFromPartialLists(t *testing.T) {
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "split.py"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	l := &pyLang{}
+	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: newPyConfig()}}
+	f := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "split",
+    srcs = [":split.py", GENERATED_SRCS],
+)
+`)
+
+	got := importPaths(l.Imports(c, f.Rules[0], f))
+	want := []string{"pkg.split"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Imports() = %v, want %v", got, want)
+	}
+}
+
 func TestImports_MappedLibraryKind(t *testing.T) {
 	root := t.TempDir()
 	pkgDir := filepath.Join(root, "pplx/python/apps/asi/tests")

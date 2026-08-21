@@ -37,7 +37,10 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 	ownership := newDiskPackageSourceOwnership(l, cfg, c, f)
 	srcs, ok := ownership.sourcesForRule(r)
 	if !ok {
-		return nil
+		srcs = ownership.knownLiteralPythonSources(r)
+		if len(srcs) == 0 {
+			return nil
+		}
 	}
 
 	seen := map[string]bool{}

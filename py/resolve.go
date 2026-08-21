@@ -84,7 +84,8 @@ func existingDepsForResolve(importData ImportData, r *rule.Rule) []string {
 	if len(importData.ExistingDeps) > 0 {
 		return importData.ExistingDeps
 	}
-	return r.AttrStrings("deps")
+	deps, _ := literalStringListAttr(r, "deps")
+	return deps
 }
 
 // conftestImportsFor walks up from `pkg` (workspace-relative) to the repo root

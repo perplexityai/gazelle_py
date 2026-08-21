@@ -6,6 +6,7 @@ import (
 	"log"
 	"path"
 	"strings"
+	"unicode"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/rule"
@@ -181,7 +182,11 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 		}
 		cfg.pythonRoot = root
 	case directiveImportPrefix:
-		cfg.importPrefix = strings.Trim(val, ".")
+		prefix, err := pythonImportPrefixForDirective(val)
+		if err != nil {
+			log.Fatalf("invalid %s %q in //%s: %v", directiveImportPrefix, val, rel, err)
+		}
+		cfg.importPrefix = prefix
 	case directiveResolveSiblingImports:
 		cfg.resolveSiblingImports = parseBool(val, cfg.resolveSiblingImports)
 	case directiveLabelNormalization:
@@ -225,6 +230,11 @@ func pythonRootPathForDirective(rel, value string) (string, error) {
 	if strings.HasPrefix(value, "/") {
 		return "", fmt.Errorf("%q is absolute; want a workspace-relative ancestor of //%s", value, rel)
 	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == ".." {
+			return "", fmt.Errorf("%q contains parent traversal", value)
+		}
+	}
 
 	root := path.Clean(value)
 	if root == "." {
@@ -237,6 +247,32 @@ func pythonRootPathForDirective(rel, value string) (string, error) {
 		return root, nil
 	}
 	return "", fmt.Errorf("%q is not an ancestor of //%s", value, rel)
+}
+
+func pythonImportPrefixForDirective(value string) (string, error) {
+	prefix := strings.Trim(strings.TrimSpace(value), ".")
+	if prefix == "" {
+		return "", nil
+	}
+	for _, segment := range strings.Split(prefix, ".") {
+		if !isPythonIdentifier(segment) {
+			return "", fmt.Errorf("%q is not a dotted Python identifier", value)
+		}
+	}
+	return prefix, nil
+}
+
+func isPythonIdentifier(value string) bool {
+	for i, r := range value {
+		if r == '_' || unicode.IsLetter(r) {
+			continue
+		}
+		if i > 0 && (unicode.IsDigit(r) || unicode.In(r, unicode.Mn, unicode.Mc, unicode.Pc)) {
+			continue
+		}
+		return false
+	}
+	return value != ""
 }
 
 func filepathToSlash(value string) string {
