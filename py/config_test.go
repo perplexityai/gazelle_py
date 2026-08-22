@@ -113,23 +113,6 @@ func TestApplyDirective_PythonRoot(t *testing.T) {
 	}
 }
 
-func TestApplyDirective_MainOwnerKind(t *testing.T) {
-	cfg := newPyConfig()
-	applyDirective(cfg, rule.Directive{Key: directiveMainOwnerKind, Value: "workflow_job custom_launcher"}, "")
-	applyDirective(cfg, rule.Directive{Key: directiveMainOwnerKind, Value: "workflow_job"}, "")
-
-	want := map[string]bool{"custom_launcher": true, "workflow_job": true}
-	if !reflect.DeepEqual(cfg.mainOwnerKinds, want) {
-		t.Fatalf("python_main_owner_kind: cfg.mainOwnerKinds = %v, want %v", cfg.mainOwnerKinds, want)
-	}
-
-	child := cfg.clone()
-	child.mainOwnerKinds["deployment"] = true
-	if cfg.mainOwnerKinds["deployment"] {
-		t.Fatal("clone mutated parent main-owner kinds")
-	}
-}
-
 func TestApplyDirective_ResolveSiblingImports(t *testing.T) {
 	cfg := newPyConfig()
 	applyDirective(cfg, rule.Directive{Key: directiveResolveSiblingImports, Value: "true"}, "")

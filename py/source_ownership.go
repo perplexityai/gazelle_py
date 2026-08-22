@@ -2,7 +2,6 @@ package py
 
 import (
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -230,110 +229,15 @@ func (o *packageSourceOwnership) isManagedExistingRule(r *rule.Rule) bool {
 }
 
 func (o *packageSourceOwnership) isPythonSourceOwner(r *rule.Rule) bool {
-	if ok, _ := o.isPythonRule(r); ok {
-		return true
-	}
-	return o.isConfiguredPythonMainOwner(r)
-}
-
-func (o *packageSourceOwnership) isConfiguredPythonMainOwner(r *rule.Rule) bool {
-	main, ok := literalStringAttr(r, "main")
-	main = normalizeLocalSource(main)
-	return !o.isPythonBinaryRule(r) &&
-		o.cfg.mainOwnerKinds[r.Kind()] &&
-		r.Attr("main") != nil &&
-		ok &&
-		o.expander.contains(main) &&
-		!o.mainOwnedByLocalLibraryDependency(r)
-}
-
-func (o *packageSourceOwnership) mainOwnedByLocalLibraryDependency(r *rule.Rule) bool {
-	if o.file == nil {
-		return false
-	}
-	main, ok := literalStringAttr(r, "main")
-	if !ok {
-		return false
-	}
-	// Direct labels are safe ownership evidence even when the surrounding list
-	// also contains a computed element. Do not use the partial list for rewrites.
-	deps, _ := literalStringListAttr(r, "deps")
-	main = filepath.ToSlash(main)
-	for _, dep := range deps {
-		name, ok := localDependencyName(dep, o.file.Pkg)
-		if !ok {
-			continue
-		}
-		for _, candidate := range o.file.Rules {
-			isPython, isTest := o.isPythonRule(candidate)
-			if candidate.Name() != name || !isPython || isTest {
-				continue
-			}
-			srcs, ok := o.sourcesForRule(candidate)
-			if ok && containsSource(srcs, main) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func localDependencyName(dep string, pkg string) (string, bool) {
-	if strings.HasPrefix(dep, ":") {
-		return strings.TrimPrefix(dep, ":"), true
-	}
-	packageLabel := "//" + pkg
-	if pkg != "" && dep == packageLabel {
-		return path.Base(pkg), true
-	}
-	prefix := packageLabel + ":"
-	if strings.HasPrefix(dep, prefix) {
-		return strings.TrimPrefix(dep, prefix), true
-	}
-	return "", false
-}
-
-func (o *packageSourceOwnership) configuredPythonMainSources() map[string]bool {
-	owned := map[string]bool{}
-	if o.file == nil {
-		return owned
-	}
-	for _, r := range o.file.Rules {
-		if !o.isConfiguredPythonMainOwner(r) {
-			continue
-		}
-		main, _ := literalStringAttr(r, "main")
-		owned[normalizeLocalSource(main)] = true
-	}
-	return owned
+	ok, _ := o.isPythonRule(r)
+	return ok
 }
 
 func (o *packageSourceOwnership) sourcesOwnedByRule(r *rule.Rule) ([]string, bool) {
 	if !o.isPythonSourceOwner(r) {
 		return nil, false
 	}
-	isMainOwner := o.isConfiguredPythonMainOwner(r)
-	srcs, ok := o.sourcesForRule(r)
-	if !isMainOwner {
-		return srcs, ok
-	}
-
-	main, _ := literalStringAttr(r, "main")
-	main = filepath.ToSlash(main)
-	if !ok {
-		srcs = o.knownLiteralPythonSources(r)
-		if !containsSource(srcs, main) {
-			srcs = append(srcs, normalizeLocalSource(main))
-			sort.Strings(srcs)
-		}
-		return srcs, true
-	}
-	for _, src := range srcs {
-		if filepath.ToSlash(src) == main {
-			return srcs, true
-		}
-	}
-	return append(srcs, main), true
+	return o.sourcesForRule(r)
 }
 
 func (o *packageSourceOwnership) knownLiteralPythonSources(r *rule.Rule) []string {

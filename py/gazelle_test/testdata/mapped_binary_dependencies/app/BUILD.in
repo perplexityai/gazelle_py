@@ -26,7 +26,12 @@ custom_py_binary(
     deps = ["//manual:dep"],
 )
 
+custom_py_binary(
+    name = "job",
+    main = "job_test.py",
+)
+
 workflow_job(
     name = "launch",
-    main = "job_test.py",
+    job_module = ":job",
 )

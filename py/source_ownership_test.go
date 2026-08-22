@@ -77,44 +77,18 @@ custom_functional_test(
 	}
 }
 
-func TestConfiguredMainOwnerReservesKnownPartialSources(t *testing.T) {
-	cfg := newPyConfig()
-	cfg.mainOwnerKinds["custom_launcher"] = true
+func TestHandOwnedSourcesIgnoresUnmappedLaunchers(t *testing.T) {
 	file := mustLoadBuildFile(t, "pkg", `
 custom_launcher(
     name = "launch",
     main = "entry.py",
-    srcs = ["helper.py", GENERATED_SRCS],
+    srcs = ["helper.py"],
 )
 `)
-	ownership := newPackageSourceOwnership(cfg, nil, file, nil, []string{"entry.py", "helper.py"})
+	ownership := newPackageSourceOwnership(newPyConfig(), nil, file, nil, []string{"entry.py", "helper.py"})
 
-	got, ok := ownership.sourcesOwnedByRule(file.Rules[0])
-	want := []string{"entry.py", "helper.py"}
-	if !ok || !reflect.DeepEqual(got, want) {
-		t.Fatalf("owned sources = %v, %v; want %v, true", got, ok, want)
-	}
-}
-
-func TestConfiguredMainOwnerUsesKnownDepsFromMixedList(t *testing.T) {
-	cfg := newPyConfig()
-	cfg.mainOwnerKinds["custom_launcher"] = true
-	file := mustLoadBuildFile(t, "pkg", `
-custom_launcher(
-    name = "launch",
-    main = "entry.py",
-    deps = [":pkg", EXTRA_DEPS],
-)
-
-py_library(
-    name = "pkg",
-    srcs = ["entry.py"],
-)
-`)
-	ownership := newPackageSourceOwnership(cfg, nil, file, nil, []string{"entry.py"})
-
-	if ownership.isConfiguredPythonMainOwner(file.Rules[0]) {
-		t.Fatal("wrapper should delegate its entrypoint to the known local library dependency")
+	if got := ownership.handOwnedSources(); len(got) != 0 {
+		t.Fatalf("hand-owned sources = %v, want unmapped launcher ignored", got)
 	}
 }
 
