@@ -1,0 +1,10 @@
+output:
+  - meta
+  - summary
+
+no_auto_install: true
+
+commit-msg:
+  commands:
+    commitlint:
+      run: ./node_modules/.bin/commitlint --edit {1}
