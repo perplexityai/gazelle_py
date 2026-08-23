@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.12 (2026-08-23)
+
+## What's Changed
+* fix: restore working BCR publisher version by @longlho in https://github.com/perplexityai/gazelle_py/pull/65
+
+
+**Full Changelog**: https://github.com/perplexityai/gazelle_py/compare/v0.8.11...v0.8.12
+
 ## 0.8.11 (2026-08-23)
 
 ## What's Changed
