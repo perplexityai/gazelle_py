@@ -2,4 +2,5 @@ bazel-*
 .bazelrc.user
 MODULE.bazel.lock
 
+node_modules/
 target/
