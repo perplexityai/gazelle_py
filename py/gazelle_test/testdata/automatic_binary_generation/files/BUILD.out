@@ -1,0 +1,17 @@
+load("@rules_python//python:defs.bzl", "py_library")
+load("//tools:python_defs.bzl", "custom_py_binary")
+
+# gazelle:python_generation_mode file
+
+py_library(
+    name = "helper",
+    srcs = ["helper.py"],
+    visibility = ["//visibility:public"],
+)
+
+custom_py_binary(
+    name = "run",
+    srcs = ["run.py"],
+    main = "run.py",
+    visibility = ["//visibility:public"],
+)

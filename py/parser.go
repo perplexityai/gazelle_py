@@ -14,9 +14,9 @@ type ImportStatement struct {
 
 // FileImports holds everything the parser extracted for a single file.
 // Annotations drive `# gazelle:ignore` / `# gazelle:include_dep` handling in
-// the generator; HasMain is captured for completeness even though we don't currently
-// use it to emit `py_binary` rules. IsEmpty is true when the AST has no
-// top-level code (whitespace, comments, or module docstring only) and feeds
+// the generator; HasMain identifies executable modules for `py_binary`
+// generation. IsEmpty is true when the AST has no top-level code (whitespace,
+// comments, or module docstring only) and feeds
 // `python_skip_empty_init` rule suppression.
 type FileImports struct {
 	FileName    string // workspace-relative path (e.g. "pkg/foo.py")

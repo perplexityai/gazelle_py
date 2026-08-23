@@ -1,0 +1,35 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("//tools:python_defs.bzl", "custom_py_binary")
+
+custom_py_binary(
+    name = "existing",
+    main = "existing.py",
+    deps = [":app"],
+)
+
+filegroup(
+    name = "collision",
+)
+
+py_library(
+    name = "app",
+    srcs = [
+        "cli.py",
+        "collision.py",
+        "existing.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+py_test(
+    name = "app_test",
+    srcs = ["test_cli.py"],
+)
+
+custom_py_binary(
+    name = "cli",
+    srcs = ["cli.py"],
+    main = "cli.py",
+    visibility = ["//visibility:public"],
+    deps = [":app"],
+)

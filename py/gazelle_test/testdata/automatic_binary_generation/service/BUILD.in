@@ -1,0 +1,1 @@
+# gazelle:python_binary_naming_convention $package_name$_runner

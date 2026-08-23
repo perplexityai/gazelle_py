@@ -1,0 +1,21 @@
+load("@rules_python//python:defs.bzl", "py_library")
+load("//tools:python_defs.bzl", "custom_py_binary")
+
+# gazelle:python_binary_naming_convention $package_name$_runner
+
+py_library(
+    name = "service",
+    srcs = [
+        "__main__.py",
+        "helper.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+custom_py_binary(
+    name = "service_runner",
+    srcs = ["__main__.py"],
+    main = "__main__.py",
+    visibility = ["//visibility:public"],
+    deps = [":service"],
+)

@@ -1,0 +1,10 @@
+load("//tools:python_defs.bzl", "custom_py_binary")
+
+custom_py_binary(
+    name = "existing",
+    main = "existing.py",
+)
+
+filegroup(
+    name = "collision",
+)

@@ -18,6 +18,7 @@ import (
 const (
 	directiveEnabled         = "python_extension"
 	directiveLibraryName     = "python_library_naming_convention"
+	directiveBinaryName      = "python_binary_naming_convention"
 	directiveTestName        = "python_test_naming_convention"
 	directiveLibraryKind     = "python_library_kind"
 	directiveTestKind        = "python_test_kind"
@@ -61,6 +62,7 @@ func (l *pyLang) KnownDirectives() []string {
 	return []string{
 		directiveEnabled,
 		directiveLibraryName,
+		directiveBinaryName,
 		directiveTestName,
 		directiveLibraryKind,
 		directiveTestKind,
@@ -113,6 +115,10 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 	case directiveLibraryName:
 		if val != "" {
 			cfg.libraryName = val
+		}
+	case directiveBinaryName:
+		if val != "" {
+			cfg.binaryName = val
 		}
 	case directiveTestName:
 		if val != "" {

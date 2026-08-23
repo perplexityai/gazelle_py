@@ -125,6 +125,14 @@ func TestApplyDirective_ResolveSiblingImports(t *testing.T) {
 	}
 }
 
+func TestApplyDirective_BinaryNamingConvention(t *testing.T) {
+	cfg := newPyConfig()
+	applyDirective(cfg, rule.Directive{Key: directiveBinaryName, Value: "$package_name$_cli"}, "")
+	if got := resolveBinaryName(cfg, "services/api"); got != "api_cli" {
+		t.Fatalf("binary name = %q, want api_cli", got)
+	}
+}
+
 func TestApplyDirective_GenerationMode(t *testing.T) {
 	cases := []struct {
 		val      string

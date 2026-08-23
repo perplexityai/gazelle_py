@@ -65,8 +65,9 @@ var (
 type pyConfig struct {
 	enabled bool
 
-	// libraryName / testName are the names of the generated rules.
+	// libraryName / binaryName / testName are the names of generated rules.
 	libraryName string
+	binaryName  string
 	testName    string
 
 	// libraryKind / testKind are the rule kinds emitted. Stock defaults are

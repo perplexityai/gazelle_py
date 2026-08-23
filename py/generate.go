@@ -19,8 +19,9 @@ import (
 // name we emit for the dedicated `py_library` that wraps it (matching
 // rules_python's gazelle plugin).
 const (
-	conftestFilename   = "conftest.py"
-	conftestTargetName = "conftest"
+	conftestFilename     = "conftest.py"
+	conftestTargetName   = "conftest"
+	binaryEntrypointFile = "__main__.py"
 )
 
 // ImportData carries parsed imports + annotations from GenerateRules to
@@ -63,8 +64,8 @@ func (p preservedExpr) Merge(other bzl.Expr) bzl.Expr {
 }
 
 // GenerateRules walks a directory's files, partitions them into source vs.
-// test, parses imports via the cgo-bound import_extractor, and emits library +
-// test rules. The merge engine reconciles the result with the existing BUILD
+// test, parses imports via the cgo-bound import_extractor, and emits library,
+// binary, and test rules. The merge engine reconciles them with existing BUILD
 // content using KindInfo from kinds.go.
 //
 // Generation shape is selected by `python_generation_mode`:
@@ -73,6 +74,8 @@ func (p preservedExpr) Merge(other bzl.Expr) bzl.Expr {
 //   - project:           at the directory the directive was set on, roll up
 //     every .py file under the subtree into one library/test rule. In
 //     subdirectories within that project root, generate nothing.
+//
+// Every active mode also emits binaries for detected Python entrypoints.
 func (l *pyLang) GenerateRules(args language.GenerateArgs) language.GenerateResult {
 	cfg, ok := args.Config.Exts[languageName].(*pyConfig)
 	if !ok || !cfg.enabled {
@@ -194,8 +197,8 @@ func (l *pyLang) parseSpecs(specs []FileSpec) map[string]FileImports {
 }
 
 // generateAggregateRules emits one library + one test rule covering every
-// spec passed in. Used by both `package` and `project` generation modes —
-// the caller decides which specs to gather.
+// spec passed in, plus binaries for executable modules. Used by both `package`
+// and `project` generation modes — the caller decides which specs to gather.
 //
 // `conftest.py` at the package's own root (not nested under a subdirectory)
 // is extracted into a dedicated `py_library` named `conftest` with
@@ -344,8 +347,88 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	} else {
 		plans = append(plans, planHandRolledBinaryRules(cfg, c, rel, specs, facts, ownership, file, packageLibrary)...)
 	}
+	plans = append(plans, planDetectedBinaryRules(cfg, rel, specs, results, ownership, file, packageLibrary, sourceSet(libSrcs), binaryOwned, plans)...)
 
 	return generateResultFromPlans(plans, cfg)
+}
+
+func planDetectedBinaryRules(
+	cfg *pyConfig,
+	rel string,
+	specs []FileSpec,
+	results map[string]FileImports,
+	ownership *packageSourceOwnership,
+	file *rule.File,
+	packageLibrary *pythonLibraryOwner,
+	eligible map[string]bool,
+	owned map[string]bool,
+	reserved []rulePlan,
+) []rulePlan {
+	occupied := map[string]bool{}
+	if file != nil {
+		for _, existing := range file.Rules {
+			occupied[existing.Name()] = true
+		}
+	}
+	for _, plan := range reserved {
+		occupied[plan.rule.Name()] = true
+	}
+
+	sortedSpecs := append([]FileSpec(nil), specs...)
+	sort.Slice(sortedSpecs, func(i, j int) bool {
+		return sortedSpecs[i].RelPath < sortedSpecs[j].RelPath
+	})
+	hasPackageEntrypoint := false
+	for _, spec := range sortedSpecs {
+		if filepath.ToSlash(pkgRelativePath(spec.RelPath, rel)) == binaryEntrypointFile {
+			hasPackageEntrypoint = true
+			break
+		}
+	}
+
+	var plans []rulePlan
+	for _, spec := range sortedSpecs {
+		source := filepath.ToSlash(pkgRelativePath(spec.RelPath, rel))
+		if !eligible[source] || owned[source] || isTestFile(source, cfg) {
+			continue
+		}
+		parsed, ok := results[spec.RelPath]
+		if !ok {
+			continue
+		}
+
+		name := perFileRuleName(source)
+		if hasPackageEntrypoint {
+			if source != binaryEntrypointFile {
+				continue
+			}
+			name = resolveBinaryName(cfg, rel)
+		} else if !parsed.HasMain {
+			continue
+		}
+		if occupied[name] {
+			continue
+		}
+
+		binary := rule.NewRule(defaultBinaryKind, name)
+		binary.SetAttr("srcs", []string{source})
+		binary.SetAttr("main", source)
+		if len(cfg.visibility) > 0 {
+			binary.SetAttr("visibility", cfg.visibility)
+		}
+
+		data := ImportData{
+			Imports:     parsed.Modules,
+			Ignore:      parsed.Annotations.ignore,
+			IncludeDeps: parsed.Annotations.includeDep,
+		}
+		if library := binarySourceLibraryOwner(ownership, packageLibrary, name, []string{source}); library != nil {
+			data = ImportData{IncludeDeps: []string{":" + library.name}}
+		}
+		plans = append(plans, rulePlan{rule: binary, imports: data})
+		occupied[name] = true
+	}
+	return plans
 }
 
 func refreshManagedSources(ownership *packageSourceOwnership, name string, isTest bool, inferred []string, facts *sourceFacts, handOwned map[string]bool) []string {
@@ -606,6 +689,14 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 	facts := newSourceFacts(rel, specs, results)
 	ownership := newSpecPackageSourceOwnership(cfg, c, rel, specs, file, nil)
 	binaryOwned := existingBinarySources(ownership, file)
+	eligible := map[string]bool{}
+	for _, spec := range specs {
+		eligible[filepath.ToSlash(pkgRelativePath(spec.RelPath, rel))] = true
+	}
+	detectedBinaries := planDetectedBinaryRules(cfg, rel, specs, results, ownership, file, nil, eligible, binaryOwned, nil)
+	for _, binary := range detectedBinaries {
+		binaryOwned[binary.rule.AttrString("main")] = true
+	}
 	// Sort by the in-package relative path so emitted rules are stable.
 	sortedSpecs := append([]FileSpec(nil), specs...)
 	sort.Slice(sortedSpecs, func(i, j int) bool {
@@ -710,6 +801,7 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 	}
 
 	plans = append(plans, planHandRolledBinaryRules(cfg, c, rel, specs, facts, ownership, file, nil)...)
+	plans = append(plans, detectedBinaries...)
 
 	return generateResultFromPlans(plans, cfg)
 }
@@ -844,6 +936,20 @@ func resolveRuleNames(cfg *pyConfig, rel string) (libName, testName string) {
 		}
 	}
 	return
+}
+
+func resolveBinaryName(cfg *pyConfig, rel string) string {
+	base := filepath.Base(rel)
+	if base == "." || base == "" || base == "/" {
+		base = ""
+	}
+	if name := applyNameConvention(cfg.binaryName, base); name != "" {
+		return name
+	}
+	if base == "" {
+		return "bin"
+	}
+	return base + "_bin"
 }
 
 // applyNameConvention substitutes the rules_python `$package_name$` placeholder
