@@ -13,7 +13,7 @@ name: module-release
 #   1. A fork of github.com/bazelbuild/bazel-central-registry under the org
 #      (matches `registry_fork` below).
 #   2. The `bazel-contrib/publish-to-bcr` GitHub App installed on the fork.
-#   3. Repo secret `GH_RELEASE_TOKEN` — a classic PAT (fine-grained PATs
+#   3. Repo secret `BCR_PUBLISH_TOKEN` — a classic PAT (fine-grained PATs
 #      cannot open PRs against public repos). See
 #      https://github.com/bazel-contrib/publish-to-bcr#a-note-on-release-automation
 
@@ -55,4 +55,4 @@ jobs:
       contents: write
       id-token: write
     secrets:
-      publish_token: ${{ secrets.GH_RELEASE_TOKEN }}
+      publish_token: ${{ secrets.BCR_PUBLISH_TOKEN }}
