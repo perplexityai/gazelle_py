@@ -225,7 +225,7 @@ func TestResolvePreserveDepsLeavesExistingDeps(t *testing.T) {
 
 func TestResolvePrefersExistingPipDepRepo(t *testing.T) {
 	cfg := newPyConfig()
-	cfg.pipLinkPattern = "@pip_ai_training//{pkg}"
+	cfg.pipLinkPattern = "@pip_project//{pkg}"
 	cfg.pipLinkPatternExplicit = true
 	l := &pyLang{}
 	root := t.TempDir()
@@ -269,7 +269,7 @@ func TestResolvePyProjectFallbackUsesManifestRepo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "gazelle_python.yaml"), []byte(`
 manifest:
   pip_repository:
-    name: pip_ai_training
+    name: pip_project
   modules_mapping:
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -297,9 +297,44 @@ dependencies = ["fallback-only"]
 		label.Label{Pkg: "pkg", Name: "pkg"},
 	)
 
-	want := []string{"@pip_ai_training//fallback_only"}
+	want := []string{"@pip_project//fallback_only"}
 	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("deps = %v, want pyproject fallback dep from manifest repo %v", got, want)
+	}
+}
+
+func TestResolveManifestWithoutProjectDepsDoesNotInventPipDependency(t *testing.T) {
+	cfg := newPyConfig()
+	cfg.manifestPath = "gazelle_python.yaml"
+	l := &pyLang{}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "gazelle_python.yaml"), []byte(`
+manifest:
+  pip_repository:
+    name: pip_project
+  modules_mapping:
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &config.Config{
+		RepoRoot: root,
+		Exts:     map[string]interface{}{languageName: cfg},
+	}
+	(&resolve.Configurer{}).RegisterFlags(flag.NewFlagSet("test", flag.ContinueOnError), "", c)
+	ix := resolve.NewRuleIndex(nil)
+	r := rule.NewRule(cfg.libraryKind, "pkg")
+
+	l.Resolve(
+		c,
+		ix,
+		nil,
+		r,
+		ImportData{Imports: []ImportStatement{{ImportPath: "optional_dependency.module"}}},
+		label.Label{Pkg: "pkg", Name: "pkg"},
+	)
+
+	if got := r.AttrStrings("deps"); len(got) != 0 {
+		t.Fatalf("deps = %v, want unmapped import omitted", got)
 	}
 }
 
@@ -529,7 +564,7 @@ func TestConftestImportsFor(t *testing.T) {
 	mustWrite("apps/conftest.py")
 	mustWrite("apps/server/conftest.py")
 
-	got := conftestImportsFor(root, "apps/server/api")
+	got := conftestImportsFor(root, "apps/server/api", "")
 	if len(got) != 2 {
 		t.Fatalf("want 2 ancestor conftests, got %d (%+v)", len(got), got)
 	}
@@ -547,11 +582,32 @@ func TestConftestImportsFor(t *testing.T) {
 	}
 }
 
+func TestConftestImportsFor_NestedPythonRoot(t *testing.T) {
+	root := t.TempDir()
+	conftest := filepath.Join(root, "projects", "tests", "conftest.py")
+	if err := os.MkdirAll(filepath.Dir(conftest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(conftest, []byte("# fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := conftestImportsFor(root, "projects/tests/integration/common", "projects/tests")
+	want := []ImportStatement{{
+		ImportPath: "conftest",
+		From:       "conftest",
+		SourceFile: filepath.Join("projects", "tests", "conftest.py"),
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("conftestImportsFor() = %+v, want %+v", got, want)
+	}
+}
+
 // TestConftestImportsFor_NoneFound: when no ancestor has a conftest.py, the
 // helper returns nil — the test rule's deps shouldn't gain a synthetic import.
 func TestConftestImportsFor_NoneFound(t *testing.T) {
 	root := t.TempDir()
-	if got := conftestImportsFor(root, "apps/server"); len(got) != 0 {
+	if got := conftestImportsFor(root, "apps/server", ""); len(got) != 0 {
 		t.Errorf("want no synthesized imports, got %v", got)
 	}
 }

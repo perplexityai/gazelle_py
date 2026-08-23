@@ -10,6 +10,7 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+	bzl "github.com/bazelbuild/buildtools/build"
 	"github.com/bmatcuk/doublestar/v4"
 )
 
@@ -32,9 +33,33 @@ type ImportData struct {
 	TestImports  []ImportStatement // test-file imports
 	Ignore       map[string]bool   // module names to skip during resolution
 	IncludeDeps  []string          // labels to always add to deps
-	PreserveDeps bool              // keep existing deps when source analysis was incomplete
+	PreserveDeps bool              // keep existing deps when source or dependency analysis is incomplete
 	ExistingDeps []string          // deps already present on the merged target
 	config       *pyConfig         // package config snapshot captured before Gazelle's resolve phase
+}
+
+type pythonLibraryOwner struct {
+	name    string
+	sources map[string]bool
+}
+
+type preservedExpr struct {
+	expr bzl.Expr
+}
+
+var _ rule.BzlExprValue = preservedExpr{}
+var _ rule.Merger = preservedExpr{}
+
+func (p preservedExpr) BzlExpr() bzl.Expr {
+	return p.expr
+}
+
+// Merge keeps opaque hand-written expressions out of Gazelle's list merger.
+func (p preservedExpr) Merge(other bzl.Expr) bzl.Expr {
+	if other != nil {
+		return other
+	}
+	return p.expr
 }
 
 // GenerateRules walks a directory's files, partitions them into source vs.
@@ -185,7 +210,10 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	}
 	facts := newSourceFacts(rel, specs, results)
 	ownership := newSpecPackageSourceOwnership(cfg, c, rel, specs, file, managed)
+	leaveLibUnmanaged := ownership.hasComputedSourceAttrs(libName, false)
+	leaveTestUnmanaged := ownership.hasComputedSourceAttrs(testName, true)
 	handOwned := ownership.handOwnedSources()
+	binaryOwned := existingBinarySources(ownership, file)
 	existingLibSources := existingSourceSet(ownership, libName, false)
 	existingTestSources := existingSourceSet(ownership, testName, true)
 
@@ -210,6 +238,9 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 			continue
 		}
 		isTest := isTestFile(srcName, cfg)
+		if binaryOwned[srcKey] {
+			isTest = false
+		}
 		if existingTestSources[srcKey] {
 			isTest = true
 		} else if existingLibSources[srcKey] {
@@ -223,20 +254,27 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	}
 	sort.Strings(libSrcs)
 	sort.Strings(testSrcs)
+	if !leaveLibUnmanaged && !ownership.preservesSourceAttrs(libName, false) {
+		libSrcs = refreshManagedSources(ownership, libName, false, libSrcs, facts, handOwned)
+	}
+	if !leaveTestUnmanaged && !ownership.preservesSourceAttrs(testName, true) {
+		testSrcs = refreshManagedSources(ownership, testName, true, testSrcs, facts, handOwned)
+	}
 
 	skipLib := cfg.skipEmptyInit && facts.allEmptyInits(libSrcs)
 	skipTest := cfg.skipEmptyInit && facts.allEmptyInits(testSrcs)
 
 	var plans []rulePlan
+	var packageLibrary *pythonLibraryOwner
 
-	if len(libSrcs) > 0 && !skipLib {
+	if len(libSrcs) > 0 && !skipLib && !leaveLibUnmanaged {
 		r := rule.NewRule(cfg.libraryKind, libName)
 		importSrcs := libSrcs
-		if explicitSrcs, ok := ownership.existingExplicitRuleSources(libName, false); ok {
-			importSrcs = explicitSrcs
-			r.SetAttr("srcs", explicitSrcs)
-		} else if ownership.preservesSourceAttrs(libName, false) {
-			if srcs, ok := ownership.existingRuleSources(libName, false); ok {
+		if ownership.preservesSourceAttrs(libName, false) {
+			if explicitSrcs, ok := ownership.existingExplicitRuleSources(libName, false); ok {
+				importSrcs = explicitSrcs
+				r.SetAttr("srcs", explicitSrcs)
+			} else if srcs, ok := ownership.existingRuleSources(libName, false); ok {
 				importSrcs = srcs
 			}
 		} else {
@@ -250,9 +288,15 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 			preserveExistingDeps(r, ownership, libName, false)
 		}
 		plans = append(plans, rulePlan{rule: r, imports: data})
+		if libraryTargetNameAvailable(ownership, libName) {
+			packageLibrary = &pythonLibraryOwner{
+				name:    libName,
+				sources: sourceSet(importSrcs),
+			}
+		}
 	}
 
-	if hasConftest {
+	if hasConftest && !ownership.hasComputedSourceAttrs(conftestTargetName, false) {
 		r := rule.NewRule(cfg.libraryKind, conftestTargetName)
 		r.SetAttr("srcs", []string{conftestFilename})
 		r.SetAttr("testonly", true)
@@ -265,20 +309,23 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,
 		}, ownership, conftestTargetName, false)
+		if data.PreserveDeps {
+			preserveExistingDeps(r, ownership, conftestTargetName, false)
+		}
 		plans = append(plans, rulePlan{
 			rule:    r,
 			imports: data,
 		})
 	}
 
-	if len(testSrcs) > 0 && !skipTest {
+	if len(testSrcs) > 0 && !skipTest && !leaveTestUnmanaged {
 		r := rule.NewRule(cfg.testKind, testName)
 		importSrcs := testSrcs
-		if explicitSrcs, ok := ownership.existingExplicitRuleSources(testName, true); ok {
-			importSrcs = explicitSrcs
-			r.SetAttr("srcs", explicitSrcs)
-		} else if ownership.preservesSourceAttrs(testName, true) {
-			if srcs, ok := ownership.existingRuleSources(testName, true); ok {
+		if ownership.preservesSourceAttrs(testName, true) {
+			if explicitSrcs, ok := ownership.existingExplicitRuleSources(testName, true); ok {
+				importSrcs = explicitSrcs
+				r.SetAttr("srcs", explicitSrcs)
+			} else if srcs, ok := ownership.existingRuleSources(testName, true); ok {
 				importSrcs = srcs
 			}
 		} else {
@@ -292,11 +339,39 @@ func generateAggregateRules(cfg *pyConfig, c *config.Config, rel string, specs [
 	}
 
 	if manageHandRolled {
-		extraPlans := planHandRolledRules(cfg, c, rel, specs, facts, ownership, file, managed)
+		extraPlans := planHandRolledRules(cfg, c, rel, specs, facts, ownership, file, managed, packageLibrary)
 		plans = append(plans, extraPlans...)
+	} else {
+		plans = append(plans, planHandRolledBinaryRules(cfg, c, rel, specs, facts, ownership, file, packageLibrary)...)
 	}
 
 	return generateResultFromPlans(plans, cfg)
+}
+
+func refreshManagedSources(ownership *packageSourceOwnership, name string, isTest bool, inferred []string, facts *sourceFacts, handOwned map[string]bool) []string {
+	existing, ok := ownership.existingExplicitRuleSources(name, isTest)
+	if !ok {
+		return inferred
+	}
+
+	refreshed := sourceSet(inferred)
+	for _, src := range existing {
+		key := normalizeLocalSource(src)
+		if key == "" {
+			key = filepath.ToSlash(src)
+		}
+		if facts.contains(key) || handOwned[key] {
+			continue
+		}
+		refreshed[key] = true
+	}
+
+	srcs := make([]string, 0, len(refreshed))
+	for src := range refreshed {
+		srcs = append(srcs, src)
+	}
+	sort.Strings(srcs)
+	return srcs
 }
 
 func importDataForSources(facts *sourceFacts, srcs []string, isTest bool) ImportData {
@@ -318,14 +393,18 @@ func importDataForSources(facts *sourceFacts, srcs []string, isTest bool) Import
 }
 
 func preserveExistingDeps(r *rule.Rule, ownership *packageSourceOwnership, name string, isTest bool) {
-	deps, ok := ownership.existingRuleDeps(name, isTest)
-	if !ok {
+	existing := ownership.existingPythonRule(name, isTest)
+	if existing == nil || existing.Attr("deps") == nil {
 		return
 	}
-	r.SetAttr("deps", deps)
+	r.SetAttr("deps", preservedExpr{expr: existing.Attr("deps")})
 }
 
 func withExistingDeps(data ImportData, ownership *packageSourceOwnership, name string, isTest bool) ImportData {
+	if ownership.hasComputedDeps(name, isTest) {
+		data.PreserveDeps = true
+		return data
+	}
 	deps, ok := ownership.existingRuleDeps(name, isTest)
 	if !ok {
 		return data
@@ -337,7 +416,11 @@ func withExistingDeps(data ImportData, ownership *packageSourceOwnership, name s
 func existingSourceSet(ownership *packageSourceOwnership, name string, isTest bool) map[string]bool {
 	srcs, ok := ownership.existingRuleSources(name, isTest)
 	if !ok {
-		return nil
+		r := ownership.existingPythonRule(name, isTest)
+		if r == nil {
+			return nil
+		}
+		srcs = ownership.knownLiteralPythonSources(r)
 	}
 	set := make(map[string]bool, len(srcs))
 	for _, src := range srcs {
@@ -346,15 +429,45 @@ func existingSourceSet(ownership *packageSourceOwnership, name string, isTest bo
 	return set
 }
 
+func sourceSet(srcs []string) map[string]bool {
+	set := make(map[string]bool, len(srcs))
+	for _, src := range srcs {
+		set[filepath.ToSlash(src)] = true
+	}
+	return set
+}
+
+func libraryTargetNameAvailable(ownership *packageSourceOwnership, name string) bool {
+	if ownership == nil || ownership.file == nil {
+		return true
+	}
+	for _, r := range ownership.file.Rules {
+		if r.Name() != name {
+			continue
+		}
+		ok, isTest := ownership.isPythonRule(r)
+		return ok && !isTest
+	}
+	return true
+}
+
 func handOwnedPythonSources(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, file *rule.File, managed map[string]bool) map[string]bool {
 	return newSpecPackageSourceOwnership(cfg, c, rel, specs, file, managed).handOwnedSources()
 }
 
 func generateHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool) ([]*rule.Rule, []interface{}) {
-	return splitRulePlans(planHandRolledRules(cfg, c, rel, specs, facts, ownership, file, managed), cfg)
+	return splitRulePlans(planHandRolledRules(cfg, c, rel, specs, facts, ownership, file, managed, nil), cfg)
 }
 
-func planHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool) []rulePlan {
+func planHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool, packageLibrary *pythonLibraryOwner) []rulePlan {
+	return planExistingPythonRules(cfg, c, rel, specs, facts, ownership, file, managed, true, packageLibrary)
+}
+
+func planHandRolledBinaryRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, packageLibrary *pythonLibraryOwner) []rulePlan {
+	return planExistingPythonRules(cfg, c, rel, specs, facts, ownership, file, nil, false, packageLibrary)
+}
+
+func planExistingPythonRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, facts *sourceFacts, ownership *packageSourceOwnership, file *rule.File, managed map[string]bool, includeLibrariesAndTests bool, packageLibrary *pythonLibraryOwner) []rulePlan {
 	if file == nil {
 		return nil
 	}
@@ -367,11 +480,16 @@ func planHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []Fi
 
 	var plans []rulePlan
 	for _, er := range file.Rules {
-		if managed[er.Name()] {
+		if managed != nil && managed[er.Name()] {
 			continue
 		}
+		isBinary := ownership.isPythonBinaryRule(er)
 		okRule, isTest := ownership.isPythonRule(er)
-		if !okRule {
+		if !isBinary && (!includeLibrariesAndTests || !okRule) {
+			continue
+		}
+		existingDeps, depsAreLiteral := literalStringListAttr(er, "deps")
+		if !depsAreLiteral {
 			continue
 		}
 		srcs, ok := ownership.sourcesForRule(er)
@@ -385,20 +503,71 @@ func planHandRolledRules(cfg *pyConfig, c *config.Config, rel string, specs []Fi
 		annot := facts.annotationsFor(srcs)
 		kind := cfg.libraryKind
 		data := ImportData{Imports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
-		if isTest {
+		if isBinary {
+			kind = defaultBinaryKind
+			if library := binarySourceLibraryOwner(ownership, packageLibrary, er.Name(), srcs); library != nil {
+				data = ImportData{IncludeDeps: []string{":" + library.name}}
+			}
+		} else if isTest {
 			kind = cfg.testKind
 			data = ImportData{TestImports: imps, Ignore: annot.ignore, IncludeDeps: annot.includeDep}
 		}
 		if er.Attr("deps") != nil {
-			data.ExistingDeps = er.AttrStrings("deps")
+			data.ExistingDeps = existingDeps
 		}
 		r := rule.NewRule(kind, er.Name())
-		if er.Attr("srcs") != nil {
-			r.SetAttr("srcs", er.AttrStrings("srcs"))
+		if !isBinary && er.Attr("srcs") != nil {
+			r.SetAttr("srcs", er.Attr("srcs"))
 		}
 		plans = append(plans, rulePlan{rule: r, imports: data})
 	}
 	return plans
+}
+
+func binarySourceLibraryOwner(ownership *packageSourceOwnership, generated *pythonLibraryOwner, binaryName string, srcs []string) *pythonLibraryOwner {
+	if len(srcs) == 0 {
+		return nil
+	}
+
+	owners := map[string]*pythonLibraryOwner{}
+	if libraryOwnsSources(generated, binaryName, srcs) {
+		owners[generated.name] = generated
+	}
+	if ownership != nil && ownership.file != nil {
+		for _, r := range ownership.file.Rules {
+			ok, isTest := ownership.isPythonRule(r)
+			if !ok || isTest || r.Name() == binaryName {
+				continue
+			}
+			ownedSources, ok := ownership.sourcesForRule(r)
+			if !ok {
+				continue
+			}
+			owner := &pythonLibraryOwner{name: r.Name(), sources: sourceSet(ownedSources)}
+			if libraryOwnsSources(owner, binaryName, srcs) {
+				owners[owner.name] = owner
+			}
+		}
+	}
+	if len(owners) != 1 {
+		return nil
+	}
+	for _, owner := range owners {
+		return owner
+	}
+	return nil
+}
+
+func libraryOwnsSources(owner *pythonLibraryOwner, binaryName string, srcs []string) bool {
+	if owner == nil || owner.name == binaryName {
+		return false
+	}
+	for _, src := range srcs {
+		if !owner.sources[filepath.ToSlash(src)] {
+			return false
+		}
+	}
+	return true
 }
 
 func mappedKinds(c *config.Config, kind string) map[string]bool {
@@ -436,6 +605,7 @@ func annotationsForSrcs(rel string, srcs []string, results map[string]FileImport
 func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []FileSpec, results map[string]FileImports, file *rule.File) language.GenerateResult {
 	facts := newSourceFacts(rel, specs, results)
 	ownership := newSpecPackageSourceOwnership(cfg, c, rel, specs, file, nil)
+	binaryOwned := existingBinarySources(ownership, file)
 	// Sort by the in-package relative path so emitted rules are stable.
 	sortedSpecs := append([]FileSpec(nil), specs...)
 	sort.Slice(sortedSpecs, func(i, j int) bool {
@@ -448,6 +618,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 	)
 	for _, s := range sortedSpecs {
 		srcName := pkgRelativePath(s.RelPath, rel)
+		if binaryOwned[filepath.ToSlash(srcName)] {
+			continue
+		}
 		if isTestFile(srcName, cfg) {
 			continue
 		}
@@ -462,6 +635,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 			}
 		}
 		ruleName := perFileRuleName(srcName)
+		if ownership.hasComputedSourceAttrs(ruleName, false) {
+			continue
+		}
 		r := rule.NewRule(cfg.libraryKind, ruleName)
 		r.SetAttr("srcs", []string{srcName})
 		if isConftestAtPackageRoot(srcName) {
@@ -480,6 +656,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,
 		}, ownership, ruleName, false)
+		if data.PreserveDeps {
+			preserveExistingDeps(r, ownership, ruleName, false)
+		}
 		plans = append(plans, rulePlan{
 			rule:    r,
 			imports: data,
@@ -488,6 +667,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 
 	for _, s := range sortedSpecs {
 		srcName := pkgRelativePath(s.RelPath, rel)
+		if binaryOwned[filepath.ToSlash(srcName)] {
+			continue
+		}
 		if !isTestFile(srcName, cfg) {
 			continue
 		}
@@ -503,6 +685,9 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 		if !strings.HasSuffix(ruleName, "_test") {
 			ruleName += "_test"
 		}
+		if ownership.hasComputedSourceAttrs(ruleName, true) {
+			continue
+		}
 		r := rule.NewRule(cfg.testKind, ruleName)
 		r.SetAttr("srcs", []string{srcName})
 		var testMods []ImportStatement
@@ -515,13 +700,54 @@ func generatePerFileRules(cfg *pyConfig, c *config.Config, rel string, specs []F
 			Ignore:      annot.ignore,
 			IncludeDeps: annot.includeDep,
 		}, ownership, ruleName, true)
+		if data.PreserveDeps {
+			preserveExistingDeps(r, ownership, ruleName, true)
+		}
 		plans = append(plans, rulePlan{
 			rule:    r,
 			imports: data,
 		})
 	}
 
+	plans = append(plans, planHandRolledBinaryRules(cfg, c, rel, specs, facts, ownership, file, nil)...)
+
 	return generateResultFromPlans(plans, cfg)
+}
+
+func existingBinarySources(ownership *packageSourceOwnership, file *rule.File) map[string]bool {
+	owned := map[string]bool{}
+	if file == nil {
+		return owned
+	}
+	for _, r := range file.Rules {
+		if !ownership.isPythonBinaryRule(r) {
+			continue
+		}
+		sources, ok := ownership.sourcesForRule(r)
+		if !ok {
+			for _, source := range ownership.knownLiteralPythonSources(r) {
+				owned[source] = true
+			}
+			if main, literal := literalStringAttr(r, "main"); literal && r.Attr("main") != nil {
+				main = normalizeLocalSource(main)
+				if ownership.expander.contains(main) {
+					owned[main] = true
+				}
+			}
+			defaultMain := r.Name() + ".py"
+			if ownership.expander.contains(defaultMain) {
+				owned[defaultMain] = true
+			}
+			continue
+		}
+		for _, source := range sources {
+			source = normalizeLocalSource(source)
+			if source != "" && ownership.expander.contains(source) {
+				owned[source] = true
+			}
+		}
+	}
+	return owned
 }
 
 // pkgRelativePath drops the package prefix from a workspace-relative path.

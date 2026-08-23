@@ -1,0 +1,54 @@
+load("//tools:python_defs.bzl", "custom_py_binary", "custom_py_library", "workflow_job")
+
+custom_py_binary(
+    name = "cli",
+    main = "cli.py",
+    deps = [
+        ":helper",
+        "@pip//requests",
+    ],
+)
+
+custom_py_binary(
+    name = "cli_variant",
+    main = "cli.py",
+    deps = [
+        ":helper",
+        "@pip//requests",
+    ],
+)
+
+custom_py_binary(
+    name = "batch",
+    srcs = glob(["batch_*.py"]),
+    deps = [
+        ":helper",
+        "@pip//requests",
+    ],
+)
+
+custom_py_binary(
+    name = "selected",
+    srcs = select({
+        "//conditions:default": ["selected.py"],
+    }),
+    main = "selected_cli.py",
+    deps = ["//manual:dep"],
+)
+
+custom_py_binary(
+    name = "job",
+    main = "job_test.py",
+    deps = ["@pip//requests"],
+)
+
+workflow_job(
+    name = "launch",
+    job_module = ":job",
+)
+
+custom_py_library(
+    name = "helper",
+    srcs = ["helper.py"],
+    visibility = ["//visibility:public"],
+)

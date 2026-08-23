@@ -719,6 +719,384 @@ func TestGeneratePerFileRules_ConftestTestonly(t *testing.T) {
 	}
 }
 
+func TestGeneratePerFileRules_ExistingMappedBinariesOwnEntrypointAndReceiveImports(t *testing.T) {
+	cfg := newPyConfig()
+	c := &config.Config{KindMap: map[string]config.MappedKind{
+		defaultBinaryKind: {KindName: "custom_py_binary"},
+	}}
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:python_defs.bzl", "custom_py_binary")
+
+custom_py_binary(
+    name = "cli",
+    main = "cli.py",
+    deps = ["//stale:dep"],
+)
+
+custom_py_binary(
+    name = "cli_variant",
+    main = "cli.py",
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/cli.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	cliImports := []ImportStatement{
+		{ImportPath: "pkg.helper", SourceFile: "pkg/cli.py"},
+		{ImportPath: "requests", SourceFile: "pkg/cli.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/cli.py":    {Modules: cliImports},
+		"pkg/helper.py": {},
+	}
+
+	res := generatePerFileRules(cfg, c, "pkg", specs, results, file)
+
+	byName := map[string]*ruleSnapshot{}
+	importsByName := map[string]ImportData{}
+	for i, r := range res.Gen {
+		byName[r.Name()] = snapshot(r)
+		data, ok := res.Imports[i].(ImportData)
+		if !ok {
+			t.Fatalf("imports[%d] has type %T, want ImportData", i, res.Imports[i])
+		}
+		importsByName[r.Name()] = data
+	}
+	if got := byName["cli"]; got == nil || got.kind != defaultBinaryKind {
+		t.Fatalf(":cli = %+v, want generated %s rule", got, defaultBinaryKind)
+	}
+	if got := byName["cli_variant"]; got == nil || got.kind != defaultBinaryKind {
+		t.Fatalf(":cli_variant = %+v, want generated %s rule", got, defaultBinaryKind)
+	}
+	if got := byName["helper"]; got == nil || got.kind != defaultLibraryKind {
+		t.Fatalf(":helper = %+v, want generated %s rule", got, defaultLibraryKind)
+	}
+	for _, name := range []string{"cli", "cli_variant"} {
+		if got := importsByName[name].Imports; !reflect.DeepEqual(got, cliImports) {
+			t.Errorf(":%s imports = %v, want %v", name, got, cliImports)
+		}
+	}
+	if got := importsByName["cli"].ExistingDeps; !reflect.DeepEqual(got, []string{"//stale:dep"}) {
+		t.Errorf(":cli existing deps = %v, want [//stale:dep]", got)
+	}
+}
+
+func TestGeneratePerFileRules_StockBinaryDefaultMainOwnsEntrypoint(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "tool",
+    srcs = ["tool.py"],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/tool.py"}}
+	results := map[string]FileImports{"pkg/tool.py": {}}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %v, want only existing binary plan", ruleNames(res.Gen))
+	}
+	if got := snapshot(res.Gen[0]); got.name != "tool" || got.kind != defaultBinaryKind {
+		t.Fatalf("generated rule = %+v, want py_binary :tool", got)
+	}
+}
+
+func TestGeneratePerFileRules_GlobBinaryOwnsSourcesAndReceivesImports(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "batch",
+    srcs = glob(["batch_*.py"]),
+    deps = ["//stale:dep"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/batch_runner.py"},
+		{RelPath: "pkg/batch_worker.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	batchImports := []ImportStatement{
+		{ImportPath: "requests", SourceFile: "pkg/batch_runner.py"},
+		{ImportPath: "pkg.helper", SourceFile: "pkg/batch_worker.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/batch_runner.py": {Modules: batchImports[:1]},
+		"pkg/batch_worker.py": {Modules: batchImports[1:]},
+		"pkg/helper.py":       {},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	byName := map[string]*ruleSnapshot{}
+	importsByName := map[string]ImportData{}
+	var batchRule *rule.Rule
+	for i, r := range res.Gen {
+		byName[r.Name()] = snapshot(r)
+		importsByName[r.Name()] = res.Imports[i].(ImportData)
+		if r.Name() == "batch" {
+			batchRule = r
+		}
+	}
+	if got := byName["batch"]; got == nil || got.kind != defaultBinaryKind {
+		t.Fatalf(":batch = %+v, want binary plan without generated srcs", got)
+	}
+	if batchRule.Attr("srcs") != nil {
+		t.Fatalf(":batch generated srcs = %v, want attr omitted", batchRule.Attr("srcs"))
+	}
+	for _, name := range []string{"batch_runner", "batch_worker"} {
+		if byName[name] != nil {
+			t.Errorf("unexpected generated library :%s for binary-owned source", name)
+		}
+	}
+	if got := byName["helper"]; got == nil || got.kind != defaultLibraryKind {
+		t.Fatalf(":helper = %+v, want generated %s rule", got, defaultLibraryKind)
+	}
+	if got := importsByName["batch"].Imports; !reflect.DeepEqual(got, batchImports) {
+		t.Errorf(":batch imports = %v, want %v", got, batchImports)
+	}
+	if got := importsByName["batch"].ExistingDeps; !reflect.DeepEqual(got, []string{"//stale:dep"}) {
+		t.Errorf(":batch existing deps = %v, want [//stale:dep]", got)
+	}
+}
+
+func TestGeneratePerFileRules_NonliteralBinarySourcesRemainUnmanaged(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "batch",
+    srcs = select({
+        "//conditions:default": ["batch.py"],
+    }),
+    deps = ["//manual:dep"],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/batch.py"}}
+	results := map[string]FileImports{
+		"pkg/batch.py": {Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/batch.py"}}},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	if len(res.Gen) != 0 {
+		t.Fatalf("generated rules = %v, want existing binary left untouched", ruleNames(res.Gen))
+	}
+}
+
+func TestGeneratePerFileRules_PartiallyComputedBinarySourcesRemainUnmanaged(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "tool",
+    srcs = ["entry.py", GENERATED_SRCS],
+    deps = ["//manual:dep"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/entry.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/entry.py":  {Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/entry.py"}}},
+		"pkg/helper.py": {},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	if got := ruleNames(res.Gen); !reflect.DeepEqual(got, []string{"helper"}) {
+		t.Fatalf("generated rules = %v, want only helper library", got)
+	}
+}
+
+func TestGeneratePerFileRules_ComputedMainReservesLiteralSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "tool",
+    main = MAIN,
+    srcs = [":entry.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/entry.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/entry.py":  {},
+		"pkg/helper.py": {},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	if got := ruleNames(res.Gen); !reflect.DeepEqual(got, []string{"helper"}) {
+		t.Fatalf("generated rules = %v, want computed-main binary left untouched", got)
+	}
+}
+
+func TestGeneratePerFileRules_ComputedBinaryDepsRemainUnmanaged(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "batch",
+    srcs = ["batch.py"],
+    deps = ["//manual:dep"] + EXTRA_DEPS,
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/batch.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/batch.py":  {Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/batch.py"}}},
+		"pkg/helper.py": {},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	if got := ruleNames(res.Gen); !reflect.DeepEqual(got, []string{"helper"}) {
+		t.Fatalf("generated rules = %v, want computed-deps binary left untouched", got)
+	}
+}
+
+func TestGeneratePerFileRules_ComputedLibraryDepsRemainPreserved(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "entry",
+    srcs = ["entry.py"],
+    deps = ["//manual:dep"] + EXTRA_DEPS,
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/entry.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/entry.py":  {},
+		"pkg/helper.py": {},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	if got := ruleNames(res.Gen); !reflect.DeepEqual(got, []string{"entry", "helper"}) {
+		t.Fatalf("generated rules = %v, want entry source refreshed independently of computed deps", got)
+	}
+	data := res.Imports[0].(ImportData)
+	if !data.PreserveDeps {
+		t.Fatal("entry PreserveDeps = false, want computed deps preserved")
+	}
+	if _, complete := literalStringListAttr(res.Gen[0], "deps"); complete {
+		t.Fatalf("entry deps = %v, want preserved computed expression", res.Gen[0].Attr("deps"))
+	}
+}
+
+func TestGeneratePerFileRules_NormalizesLocalSourceLabelsForAnalysis(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "tool",
+    srcs = [":entry.py"],
+    deps = ["//stale:dep"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/entry.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	entryImports := []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/entry.py"}}
+	results := map[string]FileImports{
+		"pkg/entry.py":  {Modules: entryImports},
+		"pkg/helper.py": {},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	for i, r := range res.Gen {
+		if r.Name() != "tool" {
+			continue
+		}
+		data, ok := res.Imports[i].(ImportData)
+		if !ok {
+			t.Fatalf("imports[%d] has type %T, want ImportData", i, res.Imports[i])
+		}
+		if !reflect.DeepEqual(data.Imports, entryImports) {
+			t.Fatalf(":tool imports = %v, want %v", data.Imports, entryImports)
+		}
+		return
+	}
+	t.Fatalf("missing generated dependency plan for :tool; got %v", ruleNames(res.Gen))
+}
+
+func TestGeneratePerFileRules_NonliteralBinarySourcesOwnExplicitMain(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "tool",
+    main = "cli.py",
+    srcs = select({
+        "//conditions:default": ["tool.py"],
+    }),
+    deps = ["//manual:dep"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/cli.py"},
+		{RelPath: "pkg/tool.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/cli.py":  {Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/cli.py"}}},
+		"pkg/tool.py": {},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	if len(res.Gen) != 0 {
+		t.Fatalf("generated rules = %v, want explicit main and default entrypoint owned by unmanaged binary", ruleNames(res.Gen))
+	}
+}
+
+func TestGeneratePerFileRules_EmptyBinaryGlobRemainsUnmanaged(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "generated",
+    srcs = glob(["generated_*.py"]),
+    deps = ["//manual:dep"],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/helper.py"}}
+	results := map[string]FileImports{"pkg/helper.py": {}}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, file)
+
+	for _, r := range res.Gen {
+		if r.Name() == "generated" {
+			t.Fatalf("empty-glob binary should remain unmanaged, got %s", r.Kind())
+		}
+	}
+}
+
 func TestGenerateAggregateRules_HandRolledTargetsPackageModeOnly(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `
@@ -738,6 +1116,47 @@ py_library(
 		if r.Name() == "models" {
 			t.Fatalf("hand-rolled :models target must not be managed outside package generation mode")
 		}
+	}
+}
+
+func TestGenerateAggregateRules_UnmappedWrapperLeavesMainInLibrary(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:defs.bzl", "custom_launcher")
+load("@rules_python//python:defs.bzl", "py_library")
+
+custom_launcher(
+    name = "launch",
+    main = "entry.py",
+    deps = [
+        "//pkg",
+        "//manual:dep",
+    ],
+)
+
+py_library(
+    name = "pkg",
+    srcs = ["entry.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/entry.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/entry.py":  {},
+		"pkg/helper.py": {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %v, want only canonical library", ruleNames(res.Gen))
+	}
+	lib := res.Gen[0]
+	want := []string{"entry.py", "helper.py"}
+	if lib.Name() != "pkg" || !reflect.DeepEqual(lib.AttrStrings("srcs"), want) {
+		t.Fatalf("generated library = %s %v, want pkg %v", lib.Name(), lib.AttrStrings("srcs"), want)
 	}
 }
 
@@ -938,6 +1357,126 @@ pplx_python_library(
 	}
 }
 
+func TestGenerateAggregateRules_RefreshesManagedLibrarySources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "pkg",
+    srcs = ["job_test.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/job_test.py"},
+		{RelPath: "pkg/worker.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/job_test.py": {},
+		"pkg/worker.py":   {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %d, want only managed library", len(res.Gen))
+	}
+	lib := res.Gen[0]
+	want := []string{"job_test.py", "worker.py"}
+	if lib.Name() != "pkg" || !reflect.DeepEqual(lib.AttrStrings("srcs"), want) {
+		t.Fatalf("generated library = %s %v, want pkg %v", lib.Name(), lib.AttrStrings("srcs"), want)
+	}
+}
+
+func TestGenerateAggregateRules_NormalizesManagedSourceLabels(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+py_library(
+    name = "pkg",
+    srcs = [":app.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/app.py"},
+		{RelPath: "pkg/helper.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/app.py":    {},
+		"pkg/helper.py": {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if got, want := res.Gen[0].AttrStrings("srcs"), []string{"app.py", "helper.py"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("managed srcs = %v, want %v", got, want)
+	}
+}
+
+func TestGenerateAggregateRules_BinaryTestEntrypointStaysInLibrary(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+py_binary(
+    name = "job",
+    srcs = ["job_test.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/helper.py"},
+		{RelPath: "pkg/job_test.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/helper.py":   {},
+		"pkg/job_test.py": {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	for _, r := range res.Gen {
+		if r.Name() == "pkg_test" {
+			t.Fatal("binary launcher was collected into the generated test target")
+		}
+		if r.Name() == "pkg" {
+			want := []string{"helper.py", "job_test.py"}
+			if got := r.AttrStrings("srcs"); !reflect.DeepEqual(got, want) {
+				t.Fatalf("package library srcs = %v, want %v", got, want)
+			}
+			return
+		}
+	}
+	t.Fatal("missing generated package library")
+}
+
+func TestGenerateAggregateRules_RefreshesManagedTestSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_test")
+
+py_test(
+    name = "pkg_test",
+    srcs = ["test_existing.py"],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/test_existing.py"},
+		{RelPath: "pkg/test_new.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/test_existing.py": {},
+		"pkg/test_new.py":      {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %d, want only managed test", len(res.Gen))
+	}
+	test := res.Gen[0]
+	want := []string{"test_existing.py", "test_new.py"}
+	if test.Name() != "pkg_test" || !reflect.DeepEqual(test.AttrStrings("srcs"), want) {
+		t.Fatalf("generated test = %s %v, want pkg_test %v", test.Name(), test.AttrStrings("srcs"), want)
+	}
+}
+
 func TestGenerateAggregateRules_ExplicitSrcsWithUnavailableSourcePreservesDeps(t *testing.T) {
 	cfg := newPyConfig()
 	c := &config.Config{KindMap: map[string]config.MappedKind{
@@ -990,10 +1529,13 @@ pplx_python_library(
 
 func TestGenerateAggregateRules_CustomFilePatternTestOwnsSources(t *testing.T) {
 	cfg := newPyConfig()
+	c := &config.Config{KindMap: map[string]config.MappedKind{
+		defaultTestKind: {KindName: "custom_functional_test"},
+	}}
 	file := mustLoadBuildFile(t, "pkg", `
-load("//tools:python_defs.bzl", "pplx_python_functional_test")
+load("//tools:python_defs.bzl", "custom_functional_test")
 
-pplx_python_functional_test(
+custom_functional_test(
     name = "integration_test",
     file_patterns = ["**/test_*.py"],
 )
@@ -1007,7 +1549,7 @@ pplx_python_functional_test(
 		"pkg/test_app.py": {},
 	}
 
-	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+	res := generateAggregateRules(cfg, c, "pkg", specs, results, file, true)
 
 	for _, r := range res.Gen {
 		if r.Name() == "pkg_test" {
@@ -1016,12 +1558,12 @@ pplx_python_functional_test(
 	}
 }
 
-func TestGenerateAggregateRules_TestPackageMacroOwnsPackageSources(t *testing.T) {
+func TestGenerateAggregateRules_UnmappedTestPackageDoesNotClaimSources(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `
-load("//tools:python_defs.bzl", "pplx_python_test_package")
+load("//tools:python_defs.bzl", "custom_test_package")
 
-pplx_python_test_package(
+custom_test_package(
     name = "pkg",
 )
 `)
@@ -1038,45 +1580,151 @@ pplx_python_test_package(
 
 	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
 
-	if len(res.Gen) != 0 {
-		t.Fatalf("test package macro should own all package Python sources; got %v", ruleNames(res.Gen))
+	want := []string{"pkg", "pkg_test"}
+	if got := ruleNames(res.Gen); !reflect.DeepEqual(got, want) {
+		t.Fatalf("generated rules = %v, want %v because the custom kind is not mapped", got, want)
 	}
 }
 
-func TestGenerateAggregateRules_MappedPythonBinaryMainStaysInLibrary(t *testing.T) {
+func TestGenerateAggregateRules_MappedPythonBinaryDependsOnOwningLibrary(t *testing.T) {
 	cfg := newPyConfig()
 	c := &config.Config{KindMap: map[string]config.MappedKind{
-		"py_binary": {KindName: "pplx_python_binary"},
+		"py_binary": {KindName: "custom_py_binary"},
 	}}
 	file := mustLoadBuildFile(t, "pkg", `
-load("//tools:python_defs.bzl", "pplx_python_binary")
+load("//tools:python_defs.bzl", "custom_py_binary")
 
-pplx_python_binary(
+custom_py_binary(
     name = "tool",
     main = "tool.py",
 )
 `)
-	specs := []FileSpec{{RelPath: "pkg/tool.py"}}
-	results := map[string]FileImports{"pkg/tool.py": {}}
+	specs := []FileSpec{
+		{RelPath: "pkg/__init__.py"},
+		{RelPath: "pkg/tool.py"},
+	}
+	toolImports := []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/tool.py"}}
+	results := map[string]FileImports{
+		"pkg/__init__.py": {},
+		"pkg/tool.py":     {Modules: toolImports},
+	}
 
 	res := generateAggregateRules(cfg, c, "pkg", specs, results, file, true)
 
 	var lib *rule.Rule
-	for _, r := range res.Gen {
+	var libImports ImportData
+	for i, r := range res.Gen {
 		if r.Name() == "pkg" {
 			lib = r
+			libImports = res.Imports[i].(ImportData)
 			break
 		}
 	}
 	if lib == nil {
 		t.Fatalf("missing generated package library; got %v", ruleNames(res.Gen))
 	}
-	if srcs := lib.AttrStrings("srcs"); !reflect.DeepEqual(srcs, []string{"tool.py"}) {
-		t.Fatalf("package library srcs = %v, want [tool.py]", srcs)
+	if srcs := lib.AttrStrings("srcs"); !reflect.DeepEqual(srcs, []string{"__init__.py", "tool.py"}) {
+		t.Fatalf("package library srcs = %v, want [__init__.py tool.py]", srcs)
+	}
+	if !reflect.DeepEqual(libImports.Imports, toolImports) {
+		t.Fatalf("package library imports = %v, want %v", libImports.Imports, toolImports)
+	}
+
+	var binaryImports ImportData
+	foundBinary := false
+	for i, r := range res.Gen {
+		if r.Name() != "tool" || r.Kind() != defaultBinaryKind {
+			continue
+		}
+		foundBinary = true
+		binaryImports = res.Imports[i].(ImportData)
+		break
+	}
+	if !foundBinary {
+		t.Fatalf("missing generated binary dependency plan; got %v", ruleNames(res.Gen))
+	}
+	if len(binaryImports.Imports) != 0 {
+		t.Fatalf("binary imports = %v, want package library to carry entrypoint imports", binaryImports.Imports)
+	}
+	if !reflect.DeepEqual(binaryImports.IncludeDeps, []string{":pkg"}) {
+		t.Fatalf("binary include deps = %v, want [:pkg]", binaryImports.IncludeDeps)
 	}
 }
 
-func TestGenerateAggregateRules_FilegroupGlobOwnsResourceSources(t *testing.T) {
+func TestGenerateAggregateRules_BinaryIgnoresCollidingNonLibraryTarget(t *testing.T) {
+	cfg := newPyConfig()
+	c := &config.Config{KindMap: map[string]config.MappedKind{
+		"py_binary": {KindName: "pplx_python_binary"},
+	}}
+	file := mustLoadBuildFile(t, "pkg", `
+load("//tools:python_defs.bzl", "pplx_python_binary")
+load(":custom_test.bzl", "custom_test")
+
+pplx_python_binary(
+    name = "tool",
+    main = "tool.py",
+    deps = ["//stale:dep"],
+)
+
+custom_test(
+    name = "pkg",
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/tool.py"}}
+	toolImports := []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/tool.py"}}
+	results := map[string]FileImports{"pkg/tool.py": {Modules: toolImports}}
+
+	res := generateAggregateRules(cfg, c, "pkg", specs, results, file, true)
+
+	for i, r := range res.Gen {
+		if r.Name() != "tool" || r.Kind() != defaultBinaryKind {
+			continue
+		}
+		binaryImports := res.Imports[i].(ImportData)
+		if !reflect.DeepEqual(binaryImports.Imports, toolImports) {
+			t.Fatalf("binary imports = %v, want %v", binaryImports.Imports, toolImports)
+		}
+		if len(binaryImports.IncludeDeps) != 0 {
+			t.Fatalf("binary include deps = %v, want no dependency on colliding custom target", binaryImports.IncludeDeps)
+		}
+		return
+	}
+	t.Fatalf("missing generated binary dependency plan; got %v", ruleNames(res.Gen))
+}
+
+func TestGenerateAggregateRules_UnmappedPythonWrapperDoesNotOwnEntrypoint(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+workflow_job(
+    name = "launch",
+    main = "job.py",
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/helper.py"},
+		{RelPath: "pkg/job.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/helper.py": {},
+		"pkg/job.py":    {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	for _, r := range res.Gen {
+		if r.Name() != "pkg" {
+			continue
+		}
+		want := []string{"helper.py", "job.py"}
+		if got := r.AttrStrings("srcs"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("package library srcs = %v, want %v", got, want)
+		}
+		return
+	}
+	t.Fatalf("missing generated package library; got %v", ruleNames(res.Gen))
+}
+
+func TestGenerateAggregateRules_FilegroupGlobDoesNotClaimPythonSources(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `
 filegroup(
@@ -1095,47 +1743,222 @@ filegroup(
 
 	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
 
-	if len(res.Gen) != 0 {
-		t.Fatalf("filegroup resources should own matching Python sources; got %v", ruleNames(res.Gen))
-	}
-}
-
-func TestGenerateAggregateRules_FilegroupGlobExcludesDoNotOwnSources(t *testing.T) {
-	cfg := newPyConfig()
-	file := mustLoadBuildFile(t, "pkg", `
-filegroup(
-    name = "all_files",
-    srcs = glob(["**"], exclude = ["**/test_*.py"]),
-)
-`)
-	specs := []FileSpec{
-		{RelPath: "pkg/payload.py"},
-		{RelPath: "pkg/test_payload.py"},
-	}
-	results := map[string]FileImports{
-		"pkg/payload.py":      {},
-		"pkg/test_payload.py": {},
-	}
-
-	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
-
 	byName := map[string]*ruleSnapshot{}
 	for _, r := range res.Gen {
 		byName[r.Name()] = snapshot(r)
 	}
-	if byName["pkg"] != nil {
-		t.Fatalf("filegroup should own non-test payload.py; generated library %v", byName["pkg"])
+	lib := byName["pkg"]
+	if lib == nil || !reflect.DeepEqual(lib.srcs, []string{"payload.py"}) {
+		t.Fatalf("pkg library = %+v, want payload.py", lib)
 	}
 	test := byName["pkg_test"]
-	if test == nil {
-		t.Fatalf("test_payload.py is excluded from filegroup and should generate pkg_test; got %v", keys(byName))
-	}
-	if !reflect.DeepEqual(test.srcs, []string{"test_payload.py"}) {
-		t.Errorf("pkg_test srcs = %v, want [test_payload.py]", test.srcs)
+	if test == nil || !reflect.DeepEqual(test.srcs, []string{"test_payload.py"}) {
+		t.Fatalf("pkg test = %+v, want test_payload.py", test)
 	}
 }
 
-func TestGenerateAggregateRules_FilePatternExcludesResourceSources(t *testing.T) {
+func TestGenerateAggregateRules_FilegroupLiteralDoesNotClaimPythonSources(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+filegroup(
+    name = "deployment_files",
+    srcs = ["deployment.py"],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/deployment.py"}}
+	results := map[string]FileImports{
+		"pkg/deployment.py": {Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/deployment.py"}}},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %v, want package library", ruleNames(res.Gen))
+	}
+	lib := res.Gen[0]
+	if want := []string{"deployment.py"}; !reflect.DeepEqual(lib.AttrStrings("srcs"), want) {
+		t.Fatalf("package srcs = %v, want %v", lib.AttrStrings("srcs"), want)
+	}
+	data := res.Imports[0].(ImportData)
+	if !reflect.DeepEqual(data.Imports, results["pkg/deployment.py"].Modules) {
+		t.Fatalf("package imports = %v, want deployment imports", data.Imports)
+	}
+}
+
+func TestGenerateAggregateRules_PartiallyComputedLibrarySourcesRemainUnmanaged(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "split",
+    srcs = ["split.py", GENERATED_SRCS],
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/helper.py"},
+		{RelPath: "pkg/split.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/helper.py": {},
+		"pkg/split.py":  {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	for _, r := range res.Gen {
+		if r.Name() != "pkg" {
+			continue
+		}
+		want := []string{"helper.py"}
+		if got := r.AttrStrings("srcs"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("package library srcs = %v, want %v", got, want)
+		}
+		return
+	}
+	t.Fatalf("missing generated package library; got %v", ruleNames(res.Gen))
+}
+
+func TestGenerateAggregateRules_ComputedCanonicalSourceAttrsRemainUnmanaged(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		attrs string
+	}{
+		{
+			name: "srcs",
+			attrs: `srcs = select({
+        "//conditions:default": ["app.py"],
+    }),`,
+		},
+		{
+			name:  "file patterns",
+			attrs: `file_patterns = PATTERNS,`,
+		},
+		{
+			name: "ignore patterns",
+			attrs: `file_patterns = ["**/*.py"],
+    ignore_patterns = IGNORE_PATTERNS,`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := newPyConfig()
+			file := mustLoadBuildFile(t, "pkg", fmt.Sprintf(`
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "pkg",
+    %s
+)
+`, tc.attrs))
+			specs := []FileSpec{{RelPath: "pkg/app.py"}}
+			results := map[string]FileImports{
+				"pkg/app.py": {Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/app.py"}}},
+			}
+
+			res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+			for _, r := range res.Gen {
+				if r.Name() == "pkg" {
+					t.Fatalf("canonical rule was generated from computed %s", tc.name)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateAggregateRules_ComputedDepsPreservedWhileSourcesRefresh(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "pkg",
+    srcs = ["app.py"],
+    deps = ["//manual:dep"] + EXTRA_DEPS,
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/app.py"},
+		{RelPath: "pkg/worker.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/app.py":    {},
+		"pkg/worker.py": {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 1 {
+		t.Fatalf("generated rules = %v, want refreshed package library", ruleNames(res.Gen))
+	}
+	lib := res.Gen[0]
+	if want := []string{"app.py", "worker.py"}; !reflect.DeepEqual(lib.AttrStrings("srcs"), want) {
+		t.Fatalf("generated srcs = %v, want %v", lib.AttrStrings("srcs"), want)
+	}
+	if _, complete := literalStringListAttr(lib, "deps"); complete {
+		t.Fatalf("generated deps = %v, want preserved computed expression", lib.Attr("deps"))
+	}
+	data := res.Imports[0].(ImportData)
+	if !data.PreserveDeps {
+		t.Fatal("PreserveDeps = false, want computed deps preserved")
+	}
+}
+
+func TestGenerateAggregateRules_PartialCanonicalSourcesKeepKnownClassification(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "pkg",
+    srcs = ["test_helper.py", GENERATED_SRCS],
+)
+`)
+	specs := []FileSpec{{RelPath: "pkg/test_helper.py"}}
+	results := map[string]FileImports{"pkg/test_helper.py": {}}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if len(res.Gen) != 0 {
+		t.Fatalf("generated rules = %v, want partial canonical owner left untouched", ruleNames(res.Gen))
+	}
+}
+
+func TestGenerateAggregateRules_ComputedConftestDepsRemainPreserved(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "conftest",
+    srcs = ["conftest.py"],
+    deps = ["//manual:dep"] + EXTRA_DEPS,
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/app.py"},
+		{RelPath: "pkg/conftest.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/app.py":      {},
+		"pkg/conftest.py": {},
+	}
+
+	res := generateAggregateRules(cfg, nil, "pkg", specs, results, file, true)
+
+	if got := ruleNames(res.Gen); !reflect.DeepEqual(got, []string{"pkg", "conftest"}) {
+		t.Fatalf("generated rules = %v, want package and refreshed conftest", got)
+	}
+	data := res.Imports[1].(ImportData)
+	if !data.PreserveDeps {
+		t.Fatal("conftest PreserveDeps = false, want computed deps preserved")
+	}
+	if _, complete := literalStringListAttr(res.Gen[1], "deps"); complete {
+		t.Fatalf("conftest deps = %v, want preserved computed expression", res.Gen[1].Attr("deps"))
+	}
+}
+
+func TestGenerateAggregateRules_FilePatternIncludesSourcesAlsoStagedAsResources(t *testing.T) {
 	cfg := newPyConfig()
 	file := mustLoadBuildFile(t, "pkg", `
 load("@rules_python//python:defs.bzl", "py_library")
@@ -1179,8 +2002,9 @@ filegroup(
 	if !ok {
 		t.Fatalf("imports[0] has type %T, want ImportData", res.Imports[0])
 	}
-	if !reflect.DeepEqual(data.Imports, results["pkg/app.py"].Modules) {
-		t.Errorf(":pkg imports = %v, want only app.py imports %v", data.Imports, results["pkg/app.py"].Modules)
+	wantImports := append(append([]ImportStatement{}, results["pkg/app.py"].Modules...), results["pkg/payload.py"].Modules...)
+	if !reflect.DeepEqual(data.Imports, wantImports) {
+		t.Errorf(":pkg imports = %v, want %v", data.Imports, wantImports)
 	}
 }
 
@@ -1198,11 +2022,17 @@ py_library(
     name = "huggingface",
     srcs = ["huggingface.py"],
 )
+
+py_library(
+    name = "sources",
+    srcs = ["__init__.py"],
+)
 `)
 	specs := []FileSpec{
 		{RelPath: "pkg/sources/__init__.py"},
 		{RelPath: "pkg/sources/base.py"},
 		{RelPath: "pkg/sources/huggingface.py"},
+		{RelPath: "pkg/sources/worker.py"},
 	}
 	results := map[string]FileImports{
 		"pkg/sources/__init__.py": {
@@ -1214,6 +2044,7 @@ py_library(
 		"pkg/sources/huggingface.py": {
 			Modules: []ImportStatement{{ImportPath: "huggingface_hub", SourceFile: "pkg/sources/huggingface.py"}},
 		},
+		"pkg/sources/worker.py": {},
 	}
 
 	res := generateAggregateRules(cfg, nil, "pkg/sources", specs, results, file, true)
@@ -1233,8 +2064,8 @@ py_library(
 	if sources == nil {
 		t.Fatalf("missing generated :sources rule; have %v", keys(byName))
 	}
-	if !reflect.DeepEqual(sources.srcs, []string{"__init__.py"}) {
-		t.Errorf(":sources srcs = %v, want [__init__.py]", sources.srcs)
+	if !reflect.DeepEqual(sources.srcs, []string{"__init__.py", "worker.py"}) {
+		t.Errorf(":sources srcs = %v, want [__init__.py worker.py]", sources.srcs)
 	}
 	if !reflect.DeepEqual(importsByName["sources"].Imports, results["pkg/sources/__init__.py"].Modules) {
 		t.Errorf(":sources imports = %v, want %v", importsByName["sources"].Imports, results["pkg/sources/__init__.py"].Modules)
@@ -1425,6 +2256,35 @@ py_library(
 	wantExplicitImports := results["pkg/sub/__init__.py"].Modules
 	if !reflect.DeepEqual(explicitImports, wantExplicitImports) {
 		t.Errorf(":sub imports = %v, want %v", explicitImports, wantExplicitImports)
+	}
+}
+
+func TestGenerateHandRolledRules_LeavesGlobSourcesUnmanaged(t *testing.T) {
+	cfg := newPyConfig()
+	file := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "workers",
+    srcs = glob(
+        ["worker_*.py"],
+        exclude = ["worker_legacy.py"],
+    ),
+)
+`)
+	specs := []FileSpec{
+		{RelPath: "pkg/worker_active.py"},
+		{RelPath: "pkg/worker_legacy.py"},
+	}
+	results := map[string]FileImports{
+		"pkg/worker_active.py": {Modules: []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/worker_active.py"}}},
+		"pkg/worker_legacy.py": {},
+	}
+
+	genRules, genImports := generateHandRolledRules(cfg, nil, "pkg", specs, newSourceFacts("pkg", specs, results), nil, file, nil)
+
+	if len(genRules) != 0 || len(genImports) != 0 {
+		t.Fatalf("glob-backed rule should remain unmanaged; got rules %v imports %v", ruleNames(genRules), genImports)
 	}
 }
 

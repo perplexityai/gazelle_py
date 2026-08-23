@@ -32,23 +32,15 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 		return nil
 	}
 
-	// Strip the python_root prefix so dotted import paths are interpreted
-	// relative to it. With pythonRoot="backend", `backend/api/` indexes as
-	// `api` (and `api.*`) so source code's `from api.x import …` resolves.
-	rel := f.Pkg
-	if cfg.pythonRoot != "" {
-		rel = strings.TrimPrefix(rel, cfg.pythonRoot)
-		rel = strings.TrimPrefix(rel, "/")
-	}
-	pkg := strings.ReplaceAll(rel, "/", ".")
-	if pkg == "" {
-		return nil
-	}
+	pkg := modulePackagePath(f.Pkg, cfg.pythonRoot)
 
 	ownership := newDiskPackageSourceOwnership(l, cfg, c, f)
 	srcs, ok := ownership.sourcesForRule(r)
 	if !ok {
-		return nil
+		srcs = ownership.knownLiteralPythonSources(r)
+		if len(srcs) == 0 {
+			return nil
+		}
 	}
 
 	seen := map[string]bool{}
@@ -65,4 +57,13 @@ func (l *pyLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 		return specs[i].Imp < specs[j].Imp
 	})
 	return specs
+}
+
+func modulePackagePath(pkg, pythonRoot string) string {
+	rel := pkg
+	if pythonRoot != "" {
+		rel = strings.TrimPrefix(rel, pythonRoot)
+		rel = strings.TrimPrefix(rel, "/")
+	}
+	return strings.ReplaceAll(rel, "/", ".")
 }

@@ -52,7 +52,7 @@ flowchart LR
 
 ## What this repo gives you
 
-- **`py`** — Gazelle Python language extension. Generates and maintains `BUILD.bazel` files for Python packages, emitting stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) and [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules. Consumers swap to their own macros via `# gazelle:map_kind`. Compose your own `gazelle_binary(languages = ["@gazelle_py//py"])`.
+- **`py`** — Gazelle Python language extension. Generates and maintains `BUILD.bazel` files for Python packages, emitting stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) and [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules and maintaining dependencies for existing [`py_binary`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_binary) rules. Consumers swap to their own macros via `# gazelle:map_kind`. Compose your own `gazelle_binary(languages = ["@gazelle_py//py"])`.
 - **`crates/import_extractor`** — Rust staticlib that parses Python imports via [`ruff`](https://github.com/astral-sh/ruff)'s parser. Exposes a 2-function, plugin-namespaced C ABI (`gazelle_py_ie_dispatch` / `gazelle_py_ie_free`); the gazelle plugin links it via cgo and dispatches in-process — no subprocess startup, no JSON serialization, just protobuf bytes across the FFI boundary. See [`crates/import_extractor/README.md`](crates/import_extractor/README.md).
 
 ## Usage
@@ -117,12 +117,13 @@ bazel run //:gazelle       # generate / update BUILD.bazel files
 bazel run //:gazelle -- update -mode=diff   # idempotency check
 ```
 
-The plugin walks the directory tree, parses every `.py` for imports via the Rust extractor, and emits stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) (one per dir with sources) plus [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules (matched against `*_test.py`, `test_*.py`, `tests/**`, `test/**`). `deps` are filled in from a manifest, the first-party `RuleIndex`, or the `pip_parse` repo, in that order.
+The plugin walks the directory tree, parses every `.py` for imports via the Rust extractor, and emits stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) (one per dir with sources) plus [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules (matched against `*_test.py`, `test_*.py`, `tests/**`, `test/**`). Existing canonical package and test targets are refreshed with newly discovered sources while retaining prior test-versus-library classification; sources explicitly owned by sibling Python compilation targets remain excluded. It also updates `deps` on existing `py_binary` rules from fully literal or simple `glob()`-backed `srcs` and an optional literal `main`, while preserving the original source expression. Other computed source expressions remain unmanaged, and a list containing any computed element is treated as computed in full for dependency inference. Direct literal files in such a list still reserve ownership so Gazelle does not create duplicate targets. A computed `deps` expression is preserved independently while literal `srcs` continue to refresh. Resource rules such as `filegroup` never claim Python compilation ownership; custom compilation macros must be registered through `map_kind`. In file mode, explicitly owned sources do not receive duplicate library or test targets. When one sibling library owns all binary sources, the binary depends on that canonical owner instead of duplicating its dependency list. This keeps package initializers in runfiles and also supports explicit entrypoint libraries. Custom launchers should reference an explicit mapped Python binary instead of claiming source ownership. `deps` are filled in from a manifest, the first-party `RuleIndex`, or the `pip_parse` repo, in that order.
 
 By default the plugin emits:
 
 - `py_library` for libraries (loaded from `@rules_python//python:defs.bzl`)
 - `py_test` for tests (loaded from `@rules_python//python:defs.bzl`)
+- existing `py_binary` rules have their dependencies maintained (loaded from `@rules_python//python:defs.bzl` when unmapped)
 
 If you have your own macros, use `# gazelle:map_kind` to swap.
 
@@ -182,7 +183,8 @@ The Rust crate at [`crates/import_extractor`](crates/import_extractor) is built 
 
 All configuration is via `# gazelle:<key> <value>` directives in `BUILD.bazel` files (they inherit into subdirectories). Directive keys mirror [rules_python's gazelle plugin](https://rules-python.readthedocs.io/en/latest/gazelle/docs/index.html) so you can swap between the two without rewriting BUILD-file directives.
 
-The one exception is `python_source_extension`, which has no rules_python analog - rules_python hardcodes `.py`/`.pyi`.
+The plugin extends rules_python's directives with `python_source_extension`,
+which adds source suffixes beyond `.py`/`.pyi`.
 
 | Directive | Default | Notes |
 |---|---|---|
@@ -198,7 +200,7 @@ The one exception is `python_source_extension`, which has no rules_python analog
 | `python_skip_empty_init` | `false` | When true, skip emitting a library rule when every source is an empty, comments-only, or docstring-only `__init__.py` - covers both a single-file package and a project-mode rollup of nested empty inits. Mixed packages still emit the rule and keep `__init__.py` in `srcs` so relative imports (`from . import x`) resolve. |
 | `python_label_convention` | `@pip//{pkg}` | Template; `{pkg}` is replaced with the resolved distribution name. |
 | `python_manifest_file_name` | _(empty)_ | Workspace-relative path to a `gazelle_python.yaml` (rules_python format). When set, its `modules_mapping` overrides built-in import -> distribution heuristics. Its `pip_repository.name` supplies the pip repo for generated labels unless `python_label_convention` was explicitly set, in which case the explicit label convention controls the repo segment. |
-| `python_root` | _(workspace root)_ | Marks the current package as the Python project root: dotted import paths under it are interpreted relative to this directory. Set on a parent BUILD file in monorepos with multiple Python projects sharing one workspace (e.g. `backend/`, `tools/python/`). The directive's value is ignored - it picks up the BUILD file's own path. |
+| `python_root` | _(workspace root)_ | Marks the current package as the Python project root: dotted import paths under it are interpreted relative to this directory. The directive is value-less, matching rules_python. Set it on a parent BUILD file when every descendant should share that root. |
 | `python_resolve_sibling_imports` | `false` | When true, bare-module imports (`from app import X`) resolve as siblings of the importer's package. Lets a sibling `app.py` resolve to the local library even when the test references it as a top-level module name. Off by default to match rules_python and avoid surprising cross-package matches. |
 | `python_label_normalization` | `snake_case` | How distribution names are normalized when rendering pip labels: `snake_case` (default; lowercase + `[-.]` -> `_`), `pep503` (lowercase + runs of `[-_.]` -> `-`), or `none` (identity). Pick `pep503` if your pip repo keys directly on PEP 503 names. |
 
@@ -216,7 +218,7 @@ import baz
 
 ## Import resolution
 
-For each import the resolver walks a "possible modules" ladder, trying progressively shorter dotted prefixes (`a.b.c.d` -> `a.b.c` -> `a.b` -> `a`). At each prefix it checks every source in order before stepping shorter - that ordering matters: a single `# gazelle:resolve py <broad> <label>` directive must not steal an import that's actually a deeper, more specific submodule provided by another rule.
+For each import the resolver walks a "possible modules" ladder, trying progressively shorter dotted prefixes (`a.b.c.d` -> `a.b.c` -> `a.b` -> `a`). At each prefix it checks every source in order before stepping shorter - that ordering matters: a single `# gazelle:resolve py <broad> <label>` directive must not steal an import that's actually a deeper, more specific submodule provided by another rule. When a manifest is configured without a project dependency file, imports absent from the manifest are left unresolved instead of producing labels for packages that may not exist.
 
 ```mermaid
 flowchart TD

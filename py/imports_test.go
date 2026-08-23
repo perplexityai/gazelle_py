@@ -31,6 +31,34 @@ func TestImports_LibrarySpecs(t *testing.T) {
 	}
 }
 
+func TestImportsIndexesKnownSourcesFromPartialLists(t *testing.T) {
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "split.py"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	l := &pyLang{}
+	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: newPyConfig()}}
+	f := mustLoadBuildFile(t, "pkg", `
+load("@rules_python//python:defs.bzl", "py_library")
+
+py_library(
+    name = "split",
+    srcs = [":split.py", GENERATED_SRCS],
+)
+`)
+
+	got := importPaths(l.Imports(c, f.Rules[0], f))
+	want := []string{"pkg.split"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Imports() = %v, want %v", got, want)
+	}
+}
+
 func TestImports_MappedLibraryKind(t *testing.T) {
 	root := t.TempDir()
 	pkgDir := filepath.Join(root, "pplx/python/apps/asi/tests")
@@ -134,7 +162,7 @@ func TestImports_FilePatternDoesNotProvideExplicitSiblingSrcs(t *testing.T) {
 	}
 }
 
-func TestImports_FilePatternDoesNotProvideResourceSrcs(t *testing.T) {
+func TestImports_FilePatternIncludesSourcesAlsoStagedAsResources(t *testing.T) {
 	root := t.TempDir()
 	pkgDir := filepath.Join(root, "pkg")
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
@@ -157,7 +185,7 @@ func TestImports_FilePatternDoesNotProvideResourceSrcs(t *testing.T) {
 	f.Rules = []*rule.Rule{lib, resources}
 
 	got := importPaths(l.Imports(c, lib, f))
-	want := []string{"pkg.app"}
+	want := []string{"pkg.app", "pkg.payload"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("file-pattern Imports() = %v, want %v", got, want)
 	}
@@ -180,6 +208,31 @@ func TestImports_ConftestNarrowSpec(t *testing.T) {
 	want := []string{"pkg.sub.conftest"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("conftest Imports() = %v, want %v (must NOT contain pkg.sub or pkg.sub.*)", got, want)
+	}
+}
+
+func TestImports_ModuleAtPythonRoot(t *testing.T) {
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "projects", "tests")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "conftest.py"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := newPyConfig()
+	cfg.pythonRoot = "projects/tests"
+	l := &pyLang{}
+	c := &config.Config{RepoRoot: root, Exts: map[string]interface{}{languageName: cfg}}
+	f := rule.EmptyFile("projects/tests/BUILD.bazel", "projects/tests")
+	r := rule.NewRule(defaultLibraryKind, conftestTargetName)
+	r.SetAttr("srcs", []string{conftestFilename})
+
+	got := importPaths(l.Imports(c, r, f))
+	want := []string{"conftest"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Imports() = %v, want %v", got, want)
 	}
 }
 

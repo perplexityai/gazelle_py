@@ -1,0 +1,37 @@
+load("//tools:python_defs.bzl", "custom_py_binary", "workflow_job")
+
+custom_py_binary(
+    name = "cli",
+    main = "cli.py",
+    deps = ["//stale:dep"],
+)
+
+custom_py_binary(
+    name = "cli_variant",
+    main = "cli.py",
+)
+
+custom_py_binary(
+    name = "batch",
+    srcs = glob(["batch_*.py"]),
+    deps = ["//stale:dep"],
+)
+
+custom_py_binary(
+    name = "selected",
+    srcs = select({
+        "//conditions:default": ["selected.py"],
+    }),
+    main = "selected_cli.py",
+    deps = ["//manual:dep"],
+)
+
+custom_py_binary(
+    name = "job",
+    main = "job_test.py",
+)
+
+workflow_job(
+    name = "launch",
+    job_module = ":job",
+)

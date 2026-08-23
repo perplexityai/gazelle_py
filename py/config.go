@@ -8,6 +8,7 @@ const (
 	// to //apps/server, the most natural Bazel idiom.
 	defaultLibraryName    = ""
 	defaultTestName       = ""
+	defaultBinaryKind     = "py_binary"
 	defaultLibraryKind    = "py_library"
 	defaultTestKind       = "py_test"
 	defaultPipLinkPattern = "@pip//{pkg}"
@@ -102,9 +103,7 @@ type pyConfig struct {
 	// the Python module tree. All dotted import paths are interpreted relative
 	// to this prefix when registering libraries in the RuleIndex. Empty means
 	// "the workspace root itself", which is the most common single-project
-	// layout. Set via the `python_root` directive on a parent BUILD file when
-	// you have multiple Python projects sharing the same Bazel workspace
-	// (e.g. `backend/`, `tools/python/`).
+	// layout. Set to the declaring package via `python_root`.
 	pythonRoot string
 
 	// resolveSiblingImports controls whether bare-module imports

@@ -30,10 +30,8 @@ const (
 	// table. Set this when working with rules_python's pip_parse, which is
 	// already configured to read the same file.
 	directiveManifest = "python_manifest_file_name"
-	// directivePythonRoot marks the current Bazel package as the Python
-	// project root: dotted import paths under it are relative to this
-	// directory (not the workspace root). Set on a parent BUILD file in
-	// monorepos with multiple Python projects sharing one workspace.
+	// directivePythonRoot marks the current Bazel package as the Python project
+	// root, matching rules_python's value-less directive.
 	directivePythonRoot = "python_root"
 	// directiveResolveSiblingImports toggles whether bare-module imports
 	// (`from app import X`) resolve as siblings of the importer's package.
@@ -158,9 +156,6 @@ func applyDirective(cfg *pyConfig, d rule.Directive, rel string) {
 			cfg.manifestPath = val
 		}
 	case directivePythonRoot:
-		// The directive marks the current package as the Python root. We
-		// store the workspace-relative path (`rel`) on the config; values
-		// to the directive itself are ignored, mirroring rules_python.
 		cfg.pythonRoot = rel
 	case directiveResolveSiblingImports:
 		cfg.resolveSiblingImports = parseBool(val, cfg.resolveSiblingImports)

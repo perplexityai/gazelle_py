@@ -1,0 +1,28 @@
+load("//tools:python_defs.bzl", "custom_py_binary", "custom_py_library")
+
+custom_py_binary(
+    name = "cli",
+    main = "entry.py",
+    deps = [":app"],
+)
+
+custom_py_library(
+    name = "standalone_lib",
+    srcs = ["standalone.py"],
+)
+
+custom_py_binary(
+    name = "standalone",
+    main = "standalone.py",
+    deps = [":standalone_lib"],
+)
+
+custom_py_library(
+    name = "app",
+    srcs = [
+        "__init__.py",
+        "entry.py",
+        "helper.py",
+    ],
+    visibility = ["//visibility:public"],
+)

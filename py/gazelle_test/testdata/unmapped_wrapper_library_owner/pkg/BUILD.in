@@ -1,0 +1,17 @@
+load("//tools:defs.bzl", "custom_launcher", "custom_py_binary", "custom_py_library")
+
+custom_py_binary(
+    name = "entry",
+    main = "entry.py",
+    deps = [":pkg"],
+)
+
+custom_launcher(
+    name = "launch",
+    job_module = ":entry",
+)
+
+custom_py_library(
+    name = "pkg",
+    srcs = ["entry.py"],
+)
