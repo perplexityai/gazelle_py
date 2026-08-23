@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.13 (2026-08-23)
+
+## What's Changed
+* fix: restore SHA-compliant BCR publisher by @longlho in https://github.com/perplexityai/gazelle_py/pull/67
+
+
+**Full Changelog**: https://github.com/perplexityai/gazelle_py/compare/v0.8.12...v0.8.13
+
 ## 0.8.12 (2026-08-23)
 
 ## What's Changed
