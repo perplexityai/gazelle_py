@@ -12,7 +12,7 @@ crates/
                               # Linked into the gazelle plugin via cgo.
 proto/                        # Wire format shared by Rust + Go (proto_library).
 py/                           # Go-based Gazelle language extension that emits
-                              # stock py_library / py_test rules.
+                              # stock py_library / py_binary / py_test rules.
 platforms/                    # Toolchain platform constraints.
 examples/                     # Self-contained example workspaces (basic, composite).
 ```
@@ -44,7 +44,7 @@ flowchart LR
         ruff -- "PyResponseResult" --> ffi
         ffi --> gen
         gen --> resolve
-        resolve --> output["py_library / py_test\nrules + deps"]
+        resolve --> output["py_library / py_binary / py_test\nrules + deps"]
     end
 
     Bazel -. "produced by `bazel build`" .-> Run
@@ -52,7 +52,7 @@ flowchart LR
 
 ## What this repo gives you
 
-- **`py`** — Gazelle Python language extension. Generates and maintains `BUILD.bazel` files for Python packages, emitting stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) and [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules and maintaining dependencies for existing [`py_binary`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_binary) rules. Consumers swap to their own macros via `# gazelle:map_kind`. Compose your own `gazelle_binary(languages = ["@gazelle_py//py"])`.
+- **`py`** — Gazelle Python language extension. Generates and maintains `BUILD.bazel` files for Python packages, emitting stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library), [`py_binary`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_binary), and [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules. Consumers swap to their own macros via `# gazelle:map_kind`. Compose your own `gazelle_binary(languages = ["@gazelle_py//py"])`.
 - **`crates/import_extractor`** — Rust staticlib that parses Python imports via [`ruff`](https://github.com/astral-sh/ruff)'s parser. Exposes a 2-function, plugin-namespaced C ABI (`gazelle_py_ie_dispatch` / `gazelle_py_ie_free`); the gazelle plugin links it via cgo and dispatches in-process — no subprocess startup, no JSON serialization, just protobuf bytes across the FFI boundary. See [`crates/import_extractor/README.md`](crates/import_extractor/README.md).
 
 ## Usage
@@ -117,13 +117,13 @@ bazel run //:gazelle       # generate / update BUILD.bazel files
 bazel run //:gazelle -- update -mode=diff   # idempotency check
 ```
 
-The plugin walks the directory tree, parses every `.py` for imports via the Rust extractor, and emits stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) (one per dir with sources) plus [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules (matched against `*_test.py`, `test_*.py`, `tests/**`, `test/**`). Existing canonical package and test targets are refreshed with newly discovered sources while retaining prior test-versus-library classification; sources explicitly owned by sibling Python compilation targets remain excluded. It also updates `deps` on existing `py_binary` rules from fully literal or simple `glob()`-backed `srcs` and an optional literal `main`, while preserving the original source expression. Other computed source expressions remain unmanaged, and a list containing any computed element is treated as computed in full for dependency inference. Direct literal files in such a list still reserve ownership so Gazelle does not create duplicate targets. A computed `deps` expression is preserved independently while literal `srcs` continue to refresh. Resource rules such as `filegroup` never claim Python compilation ownership; custom compilation macros must be registered through `map_kind`. In file mode, explicitly owned sources do not receive duplicate library or test targets. When one sibling library owns all binary sources, the binary depends on that canonical owner instead of duplicating its dependency list. This keeps package initializers in runfiles and also supports explicit entrypoint libraries. Custom launchers should reference an explicit mapped Python binary instead of claiming source ownership. `deps` are filled in from a manifest, the first-party `RuleIndex`, or the `pip_parse` repo, in that order.
+The plugin walks the directory tree, parses every `.py` for imports via the Rust extractor, and emits stock [`py_library`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_library) (one per dir with sources) plus [`py_test`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_test) rules (matched against `*_test.py`, `test_*.py`, `tests/**`, `test/**`). Files containing `if __name__ == "__main__":` become [`py_binary`](https://rules-python.readthedocs.io/en/stable/api/rules_python/python/defs.html#py_binary) targets named after the file; a package-level `__main__.py` instead generates one `<package>_bin` target and takes precedence. Existing binary owners, test files, and conflicting target names do not generate duplicate binaries. Existing canonical package and test targets are refreshed with newly discovered sources while retaining prior test-versus-library classification; sources explicitly owned by sibling Python compilation targets remain excluded. Existing `py_binary` dependencies are maintained from fully literal or simple `glob()`-backed `srcs` and an optional literal `main`, while preserving the original source expression. Other computed source expressions remain unmanaged, and a list containing any computed element is treated as computed in full for dependency inference. Direct literal files in such a list still reserve ownership so Gazelle does not create duplicate targets. A computed `deps` expression is preserved independently while literal `srcs` continue to refresh. Resource rules such as `filegroup` never claim Python compilation ownership; custom compilation macros must be registered through `map_kind`. In file mode, explicitly owned sources do not receive duplicate library or test targets. When one sibling library owns all binary sources, the binary depends on that canonical owner instead of duplicating its dependency list. This keeps package initializers in runfiles and also supports explicit entrypoint libraries. Custom launchers should reference an explicit mapped Python binary instead of claiming source ownership. `deps` are filled in from a manifest, the first-party `RuleIndex`, or the `pip_parse` repo, in that order.
 
 By default the plugin emits:
 
 - `py_library` for libraries (loaded from `@rules_python//python:defs.bzl`)
+- `py_binary` for `__main__.py` and modules with a `__main__` guard
 - `py_test` for tests (loaded from `@rules_python//python:defs.bzl`)
-- existing `py_binary` rules have their dependencies maintained (loaded from `@rules_python//python:defs.bzl` when unmapped)
 
 If you have your own macros, use `# gazelle:map_kind` to swap.
 
@@ -165,7 +165,7 @@ sequenceDiagram
     Rs->>Rs: parse_unchecked + visitor
     Rs-->>FFI: PyResponseResult bytes
     FFI-->>Gen: []FileImports (modules + annotations + has_main)
-    Gen-->>Gz: py_library + py_test - srcs only, deps not yet set
+    Gen-->>Gz: py_library + py_binary + py_test - deps not yet set
 
     Gz->>Idx: index concrete Imports() specs for owned Python sources
 
@@ -190,13 +190,14 @@ which adds source suffixes beyond `.py`/`.pyi`.
 |---|---|---|
 | `python_extension` | `enabled` | `enabled` / `disabled` (also accepts `true`/`false`). Disable per-tree to skip directories owned by another tool. |
 | `python_library_naming_convention` | _(package basename, e.g. `server` for `//apps/server`)_ | Name of the generated library rule. Supports the rules_python `$package_name$` placeholder (expands to the package basename). |
+| `python_binary_naming_convention` | _(package basename + `_bin`)_ | Name of the binary generated for package-level `__main__.py`. Supports the rules_python `$package_name$` placeholder. Other guarded modules use their filename. |
 | `python_test_naming_convention` | _(package basename + `_test`)_ | Name of the generated test rule. Same `$package_name$` placeholder as the library convention. |
 | `python_library_kind` | `py_library` | Override emitted library kind without `map_kind`. (Ours; rules_python doesn't have a kind override directive.) |
 | `python_test_kind` | `py_test` | Override emitted test kind without `map_kind`. |
 | `python_visibility` | `//visibility:public` | Space-separated label list. |
 | `python_test_file_pattern` | `*_test.py`, `test_*.py`, `tests/**`, `test/**` | Comma-separated values **replace** the defaults (matches rules_python). A bare single value (no comma) is appended to the existing list as a convenience for adding one extra pattern. |
 | `python_source_extension` | `.py` | Repeatable; appended. (Ours; rules_python hardcodes `.py`/`.pyi`.) |
-| `python_generation_mode` | `package` | `package` / `file` / `project` / `off`. `package` emits one library + one test rule per directory. `file` emits one rule per source file (named after the file's basename). `project` rolls every `.py` under the directive's directory into a single library/test rule and skips generation in subdirectories - adopt only after clearing pre-existing per-package `BUILD.bazel` files in the subtree. `off` emits no Python rules for the current package or inherited children until another directive overrides it. |
+| `python_generation_mode` | `package` | `package` / `file` / `project` / `off`. `package` emits one library + one test rule per directory, plus detected binaries. `file` emits one library, binary, or test rule per source file. `project` rolls every `.py` under the directive's directory into shared library/test rules plus detected binaries and skips generation in subdirectories - adopt only after clearing pre-existing per-package `BUILD.bazel` files in the subtree. `off` emits no Python rules for the current package or inherited children until another directive overrides it. |
 | `python_skip_empty_init` | `false` | When true, skip emitting a library rule when every source is an empty, comments-only, or docstring-only `__init__.py` - covers both a single-file package and a project-mode rollup of nested empty inits. Mixed packages still emit the rule and keep `__init__.py` in `srcs` so relative imports (`from . import x`) resolve. |
 | `python_label_convention` | `@pip//{pkg}` | Template; `{pkg}` is replaced with the resolved distribution name. |
 | `python_manifest_file_name` | _(empty)_ | Workspace-relative path to a `gazelle_python.yaml` (rules_python format). When set, its `modules_mapping` overrides built-in import -> distribution heuristics. Its `pip_repository.name` supplies the pip repo for generated labels unless `python_label_convention` was explicitly set, in which case the explicit label convention controls the repo segment. |

@@ -719,6 +719,43 @@ func TestGeneratePerFileRules_ConftestTestonly(t *testing.T) {
 	}
 }
 
+func TestGeneratePerFileRules_DetectsBinaryEntrypoint(t *testing.T) {
+	cfg := newPyConfig()
+	specs := []FileSpec{
+		{RelPath: "pkg/cli.py"},
+		{RelPath: "pkg/helper.py"},
+		{RelPath: "pkg/test_cli.py"},
+	}
+	cliImports := []ImportStatement{{ImportPath: "requests", SourceFile: "pkg/cli.py"}}
+	results := map[string]FileImports{
+		"pkg/cli.py":      {Modules: cliImports, HasMain: true},
+		"pkg/helper.py":   {},
+		"pkg/test_cli.py": {HasMain: true},
+	}
+
+	res := generatePerFileRules(cfg, nil, "pkg", specs, results, nil)
+
+	for i, r := range res.Gen {
+		if r.Name() != "cli" {
+			continue
+		}
+		if r.Kind() != defaultBinaryKind {
+			t.Fatalf(":cli kind = %q, want %q", r.Kind(), defaultBinaryKind)
+		}
+		if got := r.AttrStrings("srcs"); !reflect.DeepEqual(got, []string{"cli.py"}) {
+			t.Fatalf(":cli srcs = %v, want [cli.py]", got)
+		}
+		if got := res.Imports[i].(ImportData).Imports; !reflect.DeepEqual(got, cliImports) {
+			t.Fatalf(":cli imports = %v, want %v", got, cliImports)
+		}
+		if got := ruleNames(res.Gen); !reflect.DeepEqual(got, []string{"helper", "test_cli_test", "cli"}) {
+			t.Fatalf("generated rules = %v, want helper library, test, and binary", got)
+		}
+		return
+	}
+	t.Fatalf("missing generated binary; got %v", ruleNames(res.Gen))
+}
+
 func TestGeneratePerFileRules_ExistingMappedBinariesOwnEntrypointAndReceiveImports(t *testing.T) {
 	cfg := newPyConfig()
 	c := &config.Config{KindMap: map[string]config.MappedKind{
@@ -1648,6 +1685,104 @@ custom_py_binary(
 	}
 	if !reflect.DeepEqual(binaryImports.IncludeDeps, []string{":pkg"}) {
 		t.Fatalf("binary include deps = %v, want [:pkg]", binaryImports.IncludeDeps)
+	}
+}
+
+func TestGenerateAggregateRules_DetectsBinaryEntrypoints(t *testing.T) {
+	tests := []struct {
+		name       string
+		file       string
+		specs      []FileSpec
+		results    map[string]FileImports
+		binaryName string
+		binaryMain string
+		wantRules  []string
+	}{
+		{
+			name: "guarded module becomes binary",
+			specs: []FileSpec{
+				{RelPath: "pkg/__init__.py"},
+				{RelPath: "pkg/cli.py"},
+				{RelPath: "pkg/test_cli.py"},
+			},
+			results: map[string]FileImports{
+				"pkg/__init__.py": {},
+				"pkg/cli.py":      {HasMain: true},
+				"pkg/test_cli.py": {HasMain: true},
+			},
+			binaryName: "cli",
+			binaryMain: "cli.py",
+			wantRules:  []string{"pkg", "pkg_test", "cli"},
+		},
+		{
+			name: "package entrypoint supersedes individual guards",
+			specs: []FileSpec{
+				{RelPath: "pkg/__main__.py"},
+				{RelPath: "pkg/cli.py"},
+			},
+			results: map[string]FileImports{
+				"pkg/__main__.py": {},
+				"pkg/cli.py":      {HasMain: true},
+			},
+			binaryName: "pkg_bin",
+			binaryMain: "__main__.py",
+			wantRules:  []string{"pkg", "pkg_bin"},
+		},
+		{
+			name: "existing binary owns guarded source",
+			file: `py_binary(name = "existing", main = "cli.py")`,
+			specs: []FileSpec{
+				{RelPath: "pkg/cli.py"},
+			},
+			results: map[string]FileImports{
+				"pkg/cli.py": {HasMain: true},
+			},
+			wantRules: []string{"pkg", "existing"},
+		},
+		{
+			name: "existing target prevents binary name collision",
+			file: `filegroup(name = "cli")`,
+			specs: []FileSpec{
+				{RelPath: "pkg/cli.py"},
+			},
+			results: map[string]FileImports{
+				"pkg/cli.py": {HasMain: true},
+			},
+			wantRules: []string{"pkg"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newPyConfig()
+			var file *rule.File
+			if tt.file != "" {
+				file = mustLoadBuildFile(t, "pkg", tt.file)
+			}
+			res := generateAggregateRules(cfg, nil, "pkg", tt.specs, tt.results, file, true)
+			if got := ruleNames(res.Gen); !reflect.DeepEqual(got, tt.wantRules) {
+				t.Fatalf("generated rules = %v, want %v", got, tt.wantRules)
+			}
+			if tt.binaryName == "" {
+				return
+			}
+			for i, r := range res.Gen {
+				if r.Name() != tt.binaryName {
+					continue
+				}
+				if r.Kind() != defaultBinaryKind || r.AttrString("main") != tt.binaryMain {
+					t.Fatalf("binary = %s(%q, main = %q), want %s(%q, main = %q)", r.Kind(), r.Name(), r.AttrString("main"), defaultBinaryKind, tt.binaryName, tt.binaryMain)
+				}
+				if got := r.AttrStrings("srcs"); !reflect.DeepEqual(got, []string{tt.binaryMain}) {
+					t.Fatalf("binary srcs = %v, want [%s]", got, tt.binaryMain)
+				}
+				if got := res.Imports[i].(ImportData).IncludeDeps; !reflect.DeepEqual(got, []string{":pkg"}) {
+					t.Fatalf("binary dependencies = %v, want [:pkg]", got)
+				}
+				return
+			}
+			t.Fatalf("missing binary %q", tt.binaryName)
+		})
 	}
 }
 
