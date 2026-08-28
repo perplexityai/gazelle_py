@@ -1,0 +1,53 @@
+name: Verify Commit Hooks
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify-hooks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 100
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '24'
+
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Commit Messages
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          commits=$(git rev-list origin/${{ github.base_ref }}..HEAD)
+
+          title_file=$(mktemp)
+          printf '%s\n' "$PR_TITLE" > "$title_file"
+          pnpm exec lefthook run commit-msg "$title_file"
+          rm "$title_file"
+
+          for commit in $commits; do
+            echo "Validating commit: $(git log -1 --oneline $commit)"
+            msg_file=$(mktemp)
+            git log -1 --format=%B "$commit" > "$msg_file"
+            pnpm exec lefthook run commit-msg "$msg_file"
+            rm "$msg_file"
+          done
