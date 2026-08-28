@@ -1,8 +1,6 @@
-output:
+skip_output:
   - meta
   - summary
-
-no_auto_install: true
 
 commit-msg:
   commands:
