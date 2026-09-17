@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.14 (2026-09-17)
+
+## What's Changed
+* ci: use FormatJS-style hook verification by @longlho in https://github.com/perplexityai/gazelle_py/pull/69
+* fix: support rules_rs 0.0.111 toolchain layout by @longlho in https://github.com/perplexityai/gazelle_py/pull/71
+
+
+**Full Changelog**: https://github.com/perplexityai/gazelle_py/compare/v0.8.13...v0.8.14
+
 ## 0.8.13 (2026-08-23)
 
 ## What's Changed
