@@ -2,7 +2,7 @@
 
 A Gazelle language extension for Python, paired with a Rust import-extractor that the plugin links in via cgo.
 
-Tested on **Bazel 8.5+ and 9.x (bzlmod)** with [`rules_rs`](https://github.com/dzbarsky/rules_rs) for the Rust side and `rules_python` for the rules it emits. The `bazel_compatibility` floor matches rules_rs's; we don't use anything beyond what it requires.
+Tested on **Bazel 8.5+ and 9.x (bzlmod)** with [`rules_rs`](https://github.com/hermeticbuild/rules_rs) for the Rust side and `rules_python` for the rules it emits.
 
 ## Layout
 
