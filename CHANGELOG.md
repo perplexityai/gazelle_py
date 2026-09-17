@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.15 (2026-09-17)
+
+## What's Changed
+* chore: remove alex-ppl-ai from maintainers by @longlho in https://github.com/perplexityai/gazelle_py/pull/72
+
+
+**Full Changelog**: https://github.com/perplexityai/gazelle_py/compare/v0.8.14...v0.8.15
+
 ## 0.8.14 (2026-09-17)
 
 ## What's Changed
