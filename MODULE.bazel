@@ -1,13 +1,12 @@
 module(
     name = "gazelle_py",
     version = "0.0.0",
-    # rules_rs 0.0.73 requires Bazel >=8.5.0; we don't use anything beyond
-    # what rules_rs requires, so match its floor.
+    # Preserve the supported Bazel range; CI covers Bazel 8.x and 9.x.
     bazel_compatibility = [">=8.5.0"],
 )
 
 bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "rules_rs", version = "0.0.73")
+bazel_dep(name = "rules_rs", version = "0.0.111")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "protobuf", version = "34.0.bcr.1", repo_name = "com_google_protobuf")
 bazel_dep(name = "rules_go", version = "0.60.0")
@@ -44,7 +43,8 @@ toolchains.toolchain(
 )
 use_repo(toolchains, "default_rust_toolchains")
 
-register_toolchains("@default_rust_toolchains//:all")
+# rules_rs declares compiler, formatter, and analyzer toolchains in subpackages.
+register_toolchains("@default_rust_toolchains//...")
 
 # Crate resolution: rules_rs reads Cargo.toml/Cargo.lock directly (no
 # repinning). Propagates to consumers along with the rust toolchain above.

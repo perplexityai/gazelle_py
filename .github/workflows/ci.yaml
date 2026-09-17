@@ -17,9 +17,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # rules_rs's bazel_compatibility floor is 8.5.0; we test the latest
-        # 8.x and the 9.x our .bazelversion pins. Bare values to keep
-        # bazelisk's USE_BAZEL_VERSION resolution stable across matrix axes.
+        # Test supported Bazel 8.x and the 9.x our .bazelversion pins.
+        # Bare versions keep bazelisk's USE_BAZEL_VERSION resolution stable.
         bazel: ["9.0.0", "8.6.0"]
 
     steps:
