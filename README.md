@@ -92,6 +92,11 @@ bazel_dep(name = "gazelle_py", version = "0.0.0")
 >
 > See [`examples/basic/.bazelrc`](examples/basic/.bazelrc) for a working setup.
 
+Rust dependency resolution includes Windows x64 and ARM64 for GNU LLVM and MSVC.
+The consuming workspace must supply a C/C++ toolchain for its selected ABI:
+the registered LLVM toolchain supports GNU LLVM; MSVC needs a separate compatible
+toolchain. CI checks Windows GNU LLVM cross-target analysis, not native execution.
+
 In your root `BUILD.bazel`, compose a `gazelle_binary` that includes our language and wire up a `gazelle` runner:
 
 ```starlark

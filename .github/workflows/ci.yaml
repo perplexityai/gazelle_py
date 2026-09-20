@@ -119,3 +119,15 @@ jobs:
             bazelisk build --nobuild "--platforms=@rules_rs//rs/platforms:$triple" //:gazelle_bin
             echo "::endgroup::"
           done
+
+      - name: examples/cross_compile — analyze Windows targets from linux
+        env:
+          USE_BAZEL_VERSION: ${{ matrix.bazel }}
+        run: |
+          set -euo pipefail
+          cd examples/cross_compile
+          for triple in aarch64-pc-windows-gnullvm x86_64-pc-windows-gnullvm; do
+            echo "::group::--platforms=$triple"
+            bazelisk build --nobuild "--platforms=@rules_rs//rs/platforms:$triple" //:gazelle_bin
+            echo "::endgroup::"
+          done
