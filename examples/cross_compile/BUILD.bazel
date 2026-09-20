@@ -1,14 +1,16 @@
 load("@gazelle//:def.bzl", "gazelle_binary")
 
 # Builds a gazelle binary linking the python plugin. Smoke-tests
-# cross-compiling gazelle_py to darwin from any host:
+# cross-compiling gazelle_py to darwin and Windows from any host:
 #
 #   bazel build --platforms=@rules_rs//rs/platforms:aarch64-apple-darwin //:gazelle_bin
 #   bazel build --platforms=@rules_rs//rs/platforms:x86_64-apple-darwin  //:gazelle_bin
+#   bazel build --platforms=@rules_rs//rs/platforms:x86_64-pc-windows-gnullvm //:gazelle_bin
 #
 # Catches any future regression in the macOS rust toolchain's `@macos_sdk`
 # repo visibility from `@@gazelle_py+` — analysis fails before linking is
 # ever attempted, which is what `--nobuild` exercises in CI on Linux runners.
+# Windows analysis also catches missing triples in Rust crate resolution.
 gazelle_binary(
     name = "gazelle_bin",
     languages = ["@gazelle_py//py"],
