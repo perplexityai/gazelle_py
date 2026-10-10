@@ -27,7 +27,8 @@
     {
       "name": "save-verified-branch",
       "effect": "allow",
-      "action": "save"
+      "action": "save",
+      "when": "claims.build_branch != 'main' || claims.build_source in ['webhook', 'ui', 'api', 'schedule']"
     }
   ]
 }
