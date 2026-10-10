@@ -24,23 +24,20 @@ cache restore hits; a normal miss still runs the full build.
 
 Release Please/BCR publishing remain on GitHub Actions. BCR's provenance verifier
 checks GitHub attestations from the bazel-contrib release/publish workflows;
-running those actions on Buildkite does not preserve that identity. Existing CI
-workflows stay enabled until the required-check cutover below.
+running those actions on Buildkite does not preserve that identity. GitHub-managed
+CodeQL default setup remains enabled. The native pipeline replaces `ci.yaml` and
+`verify-hooks.yml`; `main` requires `buildkite/gazelle-py` from the Buildkite app.
 
-## Cutover
+## Pipeline settings
 
-1. In `perplexity/gazelle-py`, replace the GitHub Actions compatibility importer
-   with `.buildkite/bootstrap.yml` and keep the pipeline in the `OSS` cluster.
+1. In `perplexity/gazelle-py`, use `.buildkite/bootstrap.yml` and the `OSS` cluster.
 2. Disable the GitHub Actions pipeline trigger. Enable native GitHub webhook
    processing, pushes to `main`, PR opened/updated/reopened/edited events, and
    merge-group checks. Enable Buildkite commit status reporting. Leave tag
    builds off; releases remain on GitHub Actions.
-3. Run this PR and its branch through Buildkite. Confirm both Bazel versions,
-   all example checks, macOS smoke, and commit checks pass. Test a `main` push and
-   merge-group event before cutover.
-4. Replace the four GitHub Actions Linux checks in the `main` ruleset with the
-   observed Buildkite check. Then retire `.github/workflows/ci.yaml` and
-   `.github/workflows/verify-hooks.yml`. Keep the release workflows.
+3. Require `buildkite/gazelle-py` from the Buildkite app in the `main` ruleset.
+   PRs run Linux tests/examples and commit validation. Main and merge groups also
+   run macOS smoke. Keep Release Please and module-release on GitHub Actions.
 
 The bootstrap must specify `queue: oss`: this cluster's `default` queue is
 self-hosted. Use isolated, credential-free agents for contributor PRs. Enable
