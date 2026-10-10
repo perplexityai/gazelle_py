@@ -6,6 +6,8 @@ analysis, and PR title/commit checks on the `OSS` cluster's hosted `oss` queue
 and tests `//py:py_test` on main/merge-group builds, matching the GitHub Actions
 PR exclusion. Branch builds also run smoke so changes can be tested before merge.
 Hook dependencies are installed on every build; titles/commits are checked on PRs.
+The post-checkout hook tests GitHub's PR merge ref, matching `actions/checkout`.
+It rejects stale merge refs that do not contain the expected PR head.
 Bazel 9.0.0 and 8.6.0 run independently. Bazelisk and Node
 are checksum-pinned; each test suite and Bazel version uses its own hosted cache
 volume. Parallel versions must not share a volume: successful jobs replace its
@@ -51,7 +53,7 @@ Validate configuration locally:
 
 ```sh
 bk pipeline validate --file .buildkite/bootstrap.yml --file .buildkite/pipeline.yml
-bash -n .buildkite/bazel.sh .buildkite/verify-hooks.sh
+bash -n .buildkite/bazel.sh .buildkite/verify-hooks.sh .buildkite/hooks/post-checkout
 ```
 
 For a cutover smoke test, open a docs-only PR with a Conventional Commit title.

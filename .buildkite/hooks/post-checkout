@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ "${BUILDKITE_PULL_REQUEST:-false}" != false ]] || exit 0
+[[ "$BUILDKITE_PULL_REQUEST" =~ ^[0-9]+$ ]] || {
+  echo 'Expected a pull request number' >&2
+  exit 1
+}
+[[ "${BUILDKITE_PULL_REQUEST_USING_MERGE_REFSPEC:-false}" != true ]] || exit 0
+
+# Match actions/checkout's PR merge ref, checking for a stale GitHub merge.
+head=$(git rev-parse HEAD)
+for attempt in 1 2 3; do
+  if git fetch --no-tags origin "refs/pull/$BUILDKITE_PULL_REQUEST/merge" &&
+     [[ "$(git rev-parse FETCH_HEAD^2)" == "$head" ]]; then
+    git checkout --detach FETCH_HEAD
+    exit 0
+  fi
+  [[ "$attempt" == 3 ]] || sleep 2
+done
+echo 'GitHub PR merge ref missing or stale; resolve conflicts or retry this build' >&2
+exit 1

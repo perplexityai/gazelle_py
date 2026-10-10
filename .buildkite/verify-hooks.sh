@@ -41,7 +41,8 @@ JS
 base=$(cat "$work_dir/base")
 head=$(cat "$work_dir/head")
 # Do not report a newer PR revision as validation of this build's commit.
-if [[ "$head" != "$(git rev-parse HEAD)" ]]; then
+expected_head=${BUILDKITE_PULL_REQUEST_HEAD_COMMIT:-${BUILDKITE_COMMIT:?Set BUILDKITE_COMMIT}}
+if [[ "$head" != "$expected_head" ]] || ! git merge-base --is-ancestor "$head" HEAD; then
   echo 'Pull request head changed; run a build for its current revision' >&2
   exit 1
 fi
