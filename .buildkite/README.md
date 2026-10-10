@@ -9,8 +9,10 @@ snapshot rather than merging their cached files.
 
 Buildkite Cache restores the tool, repository, and action caches before Bazel and
 saves them after success. `.buildkite/cache.yml` keys entries by pipeline, OS,
-architecture, Bazel version, suite, dependencies, and commit. New commits fall
-back to the latest entry for the same suite/version; Bazel checks action inputs.
+architecture, Bazel version, suite, and commit. The commit covers source and
+dependency changes without hashing lockfiles that Bazel rewrites during builds.
+New commits fall back to the latest entry for the same suite/version; Bazel
+checks action inputs.
 Hosted agents supply cache storage automatically. Exact restores refresh the
 three-day retention; fallback restores do not. Cache archives add transfer time.
 The first successful build populates the registry. Check later build logs for

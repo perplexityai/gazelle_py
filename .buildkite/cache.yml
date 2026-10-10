@@ -8,15 +8,6 @@ caches:
       - env: USE_BAZEL_VERSION
       - agent: step
         fallback_limit: true
-      - checksum:
-          - .buildkite/bazel.sh
-          - .bazelrc
-          - MODULE.bazel
-          - MODULE.bazel.lock
-          - Cargo.lock
-          - go.sum
-          - examples/*/MODULE.bazel
-          - examples/*/.bazelrc
       - env: BUILDKITE_COMMIT
     target_paths:
       - /tmp/gazelle-py-ci/bin
