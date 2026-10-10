@@ -8,6 +8,7 @@ PR exclusion. Branch builds also run smoke so changes can be tested before merge
 Hook dependencies are installed on every build; titles/commits are checked on PRs.
 The post-checkout hook tests GitHub's PR merge ref, matching `actions/checkout`.
 It rejects stale merge refs that do not contain the expected PR head.
+Bootstrap pins that merge SHA in build metadata so every job tests the same tree.
 Bazel 9.0.0 and 8.6.0 run independently. Bazelisk and Node
 are checksum-pinned; each test suite and Bazel version uses its own hosted cache
 volume. Parallel versions must not share a volume: successful jobs replace its
