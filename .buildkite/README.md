@@ -9,6 +9,11 @@ Hook dependencies are installed on every build; titles/commits are checked on PR
 The post-checkout hook tests GitHub's PR merge ref, matching `actions/checkout`.
 It rejects stale merge refs that do not contain the expected PR head.
 Bootstrap pins that merge SHA in build metadata so every job tests the same tree.
+The trusted bootstrap skips repository checkout and checks GitHub PR metadata
+first. Forks require a pipeline writer to approve that commit before any fork
+checkout/hooks. Only GitHub's `renovate[bot]` identity (ID `29139614`, type `Bot`)
+bypasses fork approval. New commits get new builds and approvals; API errors or
+stale PR heads fail closed.
 Bazel 9.0.0 and 8.6.0 run independently. Bazelisk and Node
 are checksum-pinned; each test suite and Bazel version uses its own hosted cache
 volume. Parallel versions must not share a volume: successful jobs replace its
@@ -33,18 +38,22 @@ CodeQL default setup remains enabled. The native pipeline replaces `ci.yaml` and
 
 ## Pipeline settings
 
-1. In `perplexity/gazelle-py`, use `.buildkite/bootstrap.yml` and the `OSS` cluster.
+1. In `perplexity/gazelle-py`, paste `.buildkite/bootstrap.yml` into pipeline
+   settings and use the `OSS` cluster. The first step must be inline there;
+   loading a bootstrap from the PR checkout would let fork code bypass approval.
 2. Disable the GitHub Actions pipeline trigger. Enable native GitHub webhook
    processing, pushes to `main`, PR opened/updated/reopened/edited events, and
    merge-group checks. Enable Buildkite commit status reporting. Leave tag
-   builds off; releases remain on GitHub Actions.
+   builds off; releases remain on GitHub Actions. Set blocked build statuses to
+   Pending. Enable third-party fork builds only after installing this bootstrap.
 3. Require `buildkite/gazelle-py` from the Buildkite app in the `main` ruleset.
    PRs run Linux tests/examples and commit validation. Main and merge groups also
    run macOS smoke. Keep Release Please and module-release on GitHub Actions.
 
 The bootstrap must specify `queue: oss`: this cluster's `default` queue is
 self-hosted. Use isolated, credential-free agents for contributor PRs. Enable
-fork builds only after checking cluster access and approving the intended policy.
+fork builds with the trusted approval bootstrap above. Keep workflow access
+tokens disabled and pipeline/cluster secrets unavailable to these jobs.
 
 PR validation reads public GitHub metadata without a token. GitHub API rate
 limits fail the check rather than silently skipping title validation. Builds for
