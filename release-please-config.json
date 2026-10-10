@@ -3,7 +3,7 @@
   "bootstrap-sha": "f9d9c05fced36dba41ae8a9e2ad28fa97aeee79c",
   "release-type": "simple",
   "include-component-in-tag": false,
-  "changelog-type": "github",
+  "changelog-type": "default",
   "packages": {
     ".": {
       "package-name": "gazelle_py"
