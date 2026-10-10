@@ -3,7 +3,9 @@
 The native pipeline runs Linux tests, all six examples, Darwin/Windows target
 analysis, and PR title/commit checks on the `OSS` cluster's hosted `oss` queue
 (8 vCPUs, 32 GB RAM). Bazel 9.0.0 and 8.6.0 run independently. Bazelisk and Node
-are checksum-pinned; Bazel caches use hosted cache volumes.
+are checksum-pinned; each test suite and Bazel version uses its own hosted cache
+volume. Parallel versions must not share a volume: successful jobs replace its
+snapshot rather than merging their cached files.
 
 macOS smoke and Release Please/BCR publishing remain on GitHub Actions. There is
 no macOS queue in this cluster. Existing Linux workflows stay enabled during
