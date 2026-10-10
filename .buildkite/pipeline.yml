@@ -62,8 +62,43 @@ steps:
       paths: ["/tmp/gazelle-py-ci"]
     artifact_paths: "examples/*/bazel-testlogs/**/test.log;examples/*/bazel-testlogs/**/test.xml"
 
+  - label: "macOS smoke / bazel 9.0.0"
+    key: macos-smoke-9-0-0
+    if: build.pull_request.id == null
+    agents:
+      queue: oss_darwin_arm64
+    command:
+      - buildkite-agent cache restore --name bazel
+      - bash .buildkite/bazel.sh smoke
+      - buildkite-agent cache save --name bazel
+    env:
+      USE_BAZEL_VERSION: "9.0.0"
+    timeout_in_minutes: 60
+    cache:
+      name: gazelle-py-bazel-macos-smoke-9-0-0
+      size: 40g
+      paths: ["/tmp/gazelle-py-ci"]
+    artifact_paths: "bazel-testlogs/**/test.log;bazel-testlogs/**/test.xml"
+
+  - label: "macOS smoke / bazel 8.6.0"
+    key: macos-smoke-8-6-0
+    if: build.pull_request.id == null
+    agents:
+      queue: oss_darwin_arm64
+    command:
+      - buildkite-agent cache restore --name bazel
+      - bash .buildkite/bazel.sh smoke
+      - buildkite-agent cache save --name bazel
+    env:
+      USE_BAZEL_VERSION: "8.6.0"
+    timeout_in_minutes: 60
+    cache:
+      name: gazelle-py-bazel-macos-smoke-8-6-0
+      size: 40g
+      paths: ["/tmp/gazelle-py-ci"]
+    artifact_paths: "bazel-testlogs/**/test.log;bazel-testlogs/**/test.xml"
+
   - label: "Verify commit hooks"
     key: verify-hooks
-    if: build.pull_request.id != null
     command: "bash .buildkite/verify-hooks.sh"
     timeout_in_minutes: 10
