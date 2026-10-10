@@ -38,3 +38,7 @@ Validate configuration locally:
 bk pipeline validate --file .buildkite/bootstrap.yml --file .buildkite/pipeline.yml
 bash -n .buildkite/bazel.sh .buildkite/verify-hooks.sh
 ```
+
+For a cutover smoke test, open a docs-only PR with a Conventional Commit title.
+Confirm the GitHub webhook starts a native Buildkite build with both Bazel
+matrices and the PR title/commit check.
