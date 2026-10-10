@@ -35,9 +35,34 @@ permissions:
   id-token: write
 
 jobs:
+  buildkite:
+    name: Verify release commit on Buildkite
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    permissions:
+      contents: read
+      statuses: read
+    outputs:
+      commit: ${{ steps.gate.outputs.commit }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - name: Wait for exact main Buildkite build
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: python3 .github/scripts/buildkite-release-gate.py
+
   release:
+    needs: buildkite
     uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.4.0
     with:
+      # Recheck the checkout SHA; the reusable workflow appends cache flags.
+      bazel_test_command: python3 .github/scripts/buildkite-release-gate.py --expected-commit ${{ needs.buildkite.outputs.commit }}
+      mount_bazel_caches: false
       release_files: gazelle_py-*.tar.gz
       prerelease: false
       tag_name: ${{ inputs.tag || github.ref_name }}

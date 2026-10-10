@@ -14,21 +14,32 @@ first. Forks require a pipeline writer to approve that commit before any fork
 checkout/hooks. Only GitHub's `renovate[bot]` identity (ID `29139614`, type `Bot`)
 bypasses fork approval. New commits get new builds and approvals; API errors or
 stale PR heads fail closed.
-Bazel 9.0.0 and 8.6.0 run independently. Bazelisk and Node
-are checksum-pinned; each test suite and Bazel version uses its own hosted cache
-volume. Parallel versions must not share a volume: successful jobs replace its
-snapshot rather than merging their cached files.
+Bazel 9.0.0 and 8.6.0 run independently. Bazelisk and Node are checksum-pinned.
 
-Buildkite Cache restores the tool, repository, and action caches before Bazel and
-saves them after success. `.buildkite/cache.yml` keys entries by pipeline, OS,
-architecture, Bazel version, suite, and commit. The commit covers source and
-dependency changes without hashing lockfiles that Bazel rewrites during builds.
-New commits fall back to the latest entry for the same suite/version; Bazel
-checks action inputs.
-Hosted agents supply cache storage automatically. Exact restores refresh the
-three-day retention; fallback restores do not. Cache archives add transfer time.
-The first successful build populates the registry. Check later build logs for
-cache restore hits; a normal miss still runs the full build.
+## Cache isolation
+
+Bazel jobs use the `oss-ci-v2` registry with server-enforced pipeline/branch scopes.
+PRs restore their own branch or main; writes stay in their verified branch.
+Main restores only main. Trigger-created builds cannot save to main: trigger
+steps can request arbitrary branch names. Main writes require verified build
+source `webhook`, `ui`, `api`, or `schedule`. GitHub **Prefix third-party fork branch names** must stay
+on, so a fork branch named `main` cannot write the real main scope. Cache keys and
+PR-controlled YAML are not access controls.
+
+Shared hosted cache volumes are removed. Only repository/action caches persist;
+Bazelisk and downloaded tools start fresh per job. The new registry starts empty,
+so existing untrusted cache entries are never restored. Initial builds run cold.
+
+Create the registry once in the OSS cluster with `.buildkite/cache-policy.json`.
+Do not replace it with the unrestricted default registry. Policy scopes come from
+Buildkite's authenticated job claims, not environment variables supplied by jobs.
+
+```mermaid
+flowchart LR
+  M[Main job] -->|save / restore| MC[Main cache scope]
+  P[PR job] -->|save / restore| PC[PR branch cache scope]
+  MC -->|read only| P
+```
 
 Release Please/BCR publishing remain on GitHub Actions. BCR's provenance verifier
 checks GitHub attestations from the bazel-contrib release/publish workflows;
@@ -69,3 +80,21 @@ bash -n .buildkite/bazel.sh .buildkite/verify-hooks.sh .buildkite/hooks/post-che
 For a cutover smoke test, open a docs-only PR with a Conventional Commit title.
 Confirm the GitHub webhook starts a native Buildkite build with both Bazel
 matrices and the PR title/commit check.
+
+
+## Releases
+
+GHA waits for `release-ready/gazelle-py` on the exact release tag commit. Only non-PR main builds publish that status, after the full BK pipeline finishes. Failed builds stop publication; missing/pending checks time out after 90 minutes. No new secrets or BK token permissions.
+
+The reusable GHA release workflow checks that its checkout still matches the verified SHA, packages the source archive, attests provenance, and publishes BCR. Its duplicate Bazel test run and Bazel caches are disabled. Existing runner exceptions remain on GHA.
+
+```mermaid
+flowchart TD
+  Main[Main commit] --> BK[BK full test pipeline]
+  BK --> Status[Main-only release-ready status]
+  Tag[Release tag] --> Gate[GHA checks exact SHA, main ancestry, BK success]
+  Status --> Gate
+  Gate --> Archive[GHA rechecks SHA and packages source]
+  Archive --> Provenance[GHA provenance]
+  Provenance --> BCR[GitHub release and BCR]
+```
