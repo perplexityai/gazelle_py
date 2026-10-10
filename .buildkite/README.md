@@ -2,7 +2,11 @@
 
 The native pipeline runs Linux tests, all six examples, Darwin/Windows target
 analysis, and PR title/commit checks on the `OSS` cluster's hosted `oss` queue
-(8 vCPUs, 32 GB RAM). Bazel 9.0.0 and 8.6.0 run independently. Bazelisk and Node
+(8 vCPUs, 32 GB RAM). macOS smoke uses `oss_darwin_arm64` (M4, 12 vCPUs, 56 GB RAM)
+and tests `//py:py_test` on main/merge-group builds, matching the GitHub Actions
+PR exclusion. Branch builds also run smoke so changes can be tested before merge.
+Hook dependencies are installed on every build; titles/commits are checked on PRs.
+Bazel 9.0.0 and 8.6.0 run independently. Bazelisk and Node
 are checksum-pinned; each test suite and Bazel version uses its own hosted cache
 volume. Parallel versions must not share a volume: successful jobs replace its
 snapshot rather than merging their cached files.
@@ -18,9 +22,10 @@ three-day retention; fallback restores do not. Cache archives add transfer time.
 The first successful build populates the registry. Check later build logs for
 cache restore hits; a normal miss still runs the full build.
 
-macOS smoke and Release Please/BCR publishing remain on GitHub Actions. There is
-no macOS queue in this cluster. Existing Linux workflows stay enabled during
-cutover because the `main` ruleset requires their GitHub Actions checks.
+Release Please/BCR publishing remain on GitHub Actions. BCR's provenance verifier
+checks GitHub attestations from the bazel-contrib release/publish workflows;
+running those actions on Buildkite does not preserve that identity. Existing CI
+workflows stay enabled until the required-check cutover below.
 
 ## Cutover
 
@@ -30,12 +35,12 @@ cutover because the `main` ruleset requires their GitHub Actions checks.
    processing, pushes to `main`, PR opened/updated/reopened/edited events, and
    merge-group checks. Enable Buildkite commit status reporting. Leave tag
    builds off; releases remain on GitHub Actions.
-3. Run this PR through Buildkite. Confirm both Bazel versions, all example checks,
-   and commit checks pass. Test a `main` push and merge-group event before cutover.
+3. Run this PR and its branch through Buildkite. Confirm both Bazel versions,
+   all example checks, macOS smoke, and commit checks pass. Test a `main` push and
+   merge-group event before cutover.
 4. Replace the four GitHub Actions Linux checks in the `main` ruleset with the
-   observed Buildkite check. Then remove Linux jobs from `.github/workflows/ci.yaml`
-   and retire `.github/workflows/verify-hooks.yml`. Keep the macOS job and release
-   workflows.
+   observed Buildkite check. Then retire `.github/workflows/ci.yaml` and
+   `.github/workflows/verify-hooks.yml`. Keep the release workflows.
 
 The bootstrap must specify `queue: oss`: this cluster's `default` queue is
 self-hosted. Use isolated, credential-free agents for contributor PRs. Enable
