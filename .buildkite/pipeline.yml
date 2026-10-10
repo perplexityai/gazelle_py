@@ -2,28 +2,62 @@ agents:
   queue: oss
 
 steps:
-  - label: "bazel {{matrix}} test (linux-x86_64)"
-    key: bazel-test
-    command: "bash .buildkite/bazel.sh test"
-    matrix: ["9.0.0", "8.6.0"]
+  - label: "bazel 9.0.0 test (linux-x86_64)"
+    key: bazel-test-9-0-0
+    command:
+      - buildkite-agent cache restore --name bazel
+      - bash .buildkite/bazel.sh test
+      - buildkite-agent cache save --name bazel
     env:
-      USE_BAZEL_VERSION: "{{matrix}}"
+      USE_BAZEL_VERSION: "9.0.0"
     timeout_in_minutes: 60
     cache:
-      name: gazelle-py-bazel-tests
+      name: gazelle-py-bazel-tests-9-0-0
       size: 40g
       paths: ["/tmp/gazelle-py-ci"]
     artifact_paths: "bazel-testlogs/**/test.log;bazel-testlogs/**/test.xml"
 
-  - label: "examples / bazel {{matrix}}"
-    key: examples
-    command: "bash .buildkite/bazel.sh examples"
-    matrix: ["9.0.0", "8.6.0"]
+  - label: "bazel 8.6.0 test (linux-x86_64)"
+    key: bazel-test-8-6-0
+    command:
+      - buildkite-agent cache restore --name bazel
+      - bash .buildkite/bazel.sh test
+      - buildkite-agent cache save --name bazel
     env:
-      USE_BAZEL_VERSION: "{{matrix}}"
+      USE_BAZEL_VERSION: "8.6.0"
     timeout_in_minutes: 60
     cache:
-      name: gazelle-py-bazel-examples
+      name: gazelle-py-bazel-tests-8-6-0
+      size: 40g
+      paths: ["/tmp/gazelle-py-ci"]
+    artifact_paths: "bazel-testlogs/**/test.log;bazel-testlogs/**/test.xml"
+
+  - label: "examples / bazel 9.0.0"
+    key: examples-9-0-0
+    command:
+      - buildkite-agent cache restore --name bazel
+      - bash .buildkite/bazel.sh examples
+      - buildkite-agent cache save --name bazel
+    env:
+      USE_BAZEL_VERSION: "9.0.0"
+    timeout_in_minutes: 60
+    cache:
+      name: gazelle-py-bazel-examples-9-0-0
+      size: 40g
+      paths: ["/tmp/gazelle-py-ci"]
+    artifact_paths: "examples/*/bazel-testlogs/**/test.log;examples/*/bazel-testlogs/**/test.xml"
+
+  - label: "examples / bazel 8.6.0"
+    key: examples-8-6-0
+    command:
+      - buildkite-agent cache restore --name bazel
+      - bash .buildkite/bazel.sh examples
+      - buildkite-agent cache save --name bazel
+    env:
+      USE_BAZEL_VERSION: "8.6.0"
+    timeout_in_minutes: 60
+    cache:
+      name: gazelle-py-bazel-examples-8-6-0
       size: 40g
       paths: ["/tmp/gazelle-py-ci"]
     artifact_paths: "examples/*/bazel-testlogs/**/test.log;examples/*/bazel-testlogs/**/test.xml"

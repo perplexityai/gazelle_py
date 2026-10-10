@@ -3,7 +3,20 @@
 The native pipeline runs Linux tests, all six examples, Darwin/Windows target
 analysis, and PR title/commit checks on the `OSS` cluster's hosted `oss` queue
 (8 vCPUs, 32 GB RAM). Bazel 9.0.0 and 8.6.0 run independently. Bazelisk and Node
-are checksum-pinned; Bazel caches use hosted cache volumes.
+are checksum-pinned; each test suite and Bazel version uses its own hosted cache
+volume. Parallel versions must not share a volume: successful jobs replace its
+snapshot rather than merging their cached files.
+
+Buildkite Cache restores the tool, repository, and action caches before Bazel and
+saves them after success. `.buildkite/cache.yml` keys entries by pipeline, OS,
+architecture, Bazel version, suite, and commit. The commit covers source and
+dependency changes without hashing lockfiles that Bazel rewrites during builds.
+New commits fall back to the latest entry for the same suite/version; Bazel
+checks action inputs.
+Hosted agents supply cache storage automatically. Exact restores refresh the
+three-day retention; fallback restores do not. Cache archives add transfer time.
+The first successful build populates the registry. Check later build logs for
+cache restore hits; a normal miss still runs the full build.
 
 macOS smoke and Release Please/BCR publishing remain on GitHub Actions. There is
 no macOS queue in this cluster. Existing Linux workflows stay enabled during
@@ -38,3 +51,7 @@ Validate configuration locally:
 bk pipeline validate --file .buildkite/bootstrap.yml --file .buildkite/pipeline.yml
 bash -n .buildkite/bazel.sh .buildkite/verify-hooks.sh
 ```
+
+For a cutover smoke test, open a docs-only PR with a Conventional Commit title.
+Confirm the GitHub webhook starts a native Buildkite build with both Bazel
+matrices and the PR title/commit check.
