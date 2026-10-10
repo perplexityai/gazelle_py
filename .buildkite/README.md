@@ -13,6 +13,8 @@ architecture, Bazel version, suite, dependencies, and commit. New commits fall
 back to the latest entry for the same suite/version; Bazel checks action inputs.
 Hosted agents supply cache storage automatically. Exact restores refresh the
 three-day retention; fallback restores do not. Cache archives add transfer time.
+The first successful build populates the registry. Check later build logs for
+cache restore hits; a normal miss still runs the full build.
 
 macOS smoke and Release Please/BCR publishing remain on GitHub Actions. There is
 no macOS queue in this cluster. Existing Linux workflows stay enabled during
