@@ -5,6 +5,7 @@ import importlib.util
 from pathlib import Path
 import subprocess
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location("gate", Path(__file__).with_name("buildkite-release-gate.py"))
 gate = importlib.util.module_from_spec(spec)
@@ -49,6 +50,14 @@ class ReleaseGateTest(unittest.TestCase):
         self.status["target_url"] = "https://buildkite.com/perplexity/gazelle-css/builds/24"
         with self.assertRaises(ValueError):
             gate.check_status([self.status], "gazelle-py")
+
+    def test_other_repository_rejected(self):
+        for repo in ['perplexityai/gazelle_rs', 'perplexityai/rules_web_e2e', 'perplexityai/gazelle_css', 'someone/fork']:
+            with self.subTest(repo=repo), mock.patch.dict(gate.os.environ, {"GITHUB_REPOSITORY": repo}), \
+                    mock.patch("sys.argv", ["buildkite-release-gate.py"]), \
+                    mock.patch.object(gate.subprocess, "check_output", return_value="a" * 40):
+                with self.assertRaisesRegex(ValueError, "Unexpected release repository"):
+                    gate.main()
 
     def test_tag_checkout_unchanged(self):
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()

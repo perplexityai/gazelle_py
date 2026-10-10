@@ -62,13 +62,9 @@ def main():
         print(f"Packaging verified release commit {commit}; tests ran on Buildkite")
         return
     repo = os.environ["GITHUB_REPOSITORY"]
-    pipelines = {
-        "perplexityai/gazelle_py": "gazelle-py",
-        "perplexityai/gazelle_rs": "gazelle-rs",
-        "perplexityai/rules_web_e2e": "rules-web-e2e",
-        "perplexityai/gazelle_css": "gazelle-css",
-    }
-    pipeline = pipelines[repo]
+    if repo != "perplexityai/gazelle_py":
+        raise ValueError("Unexpected release repository")
+    pipeline = "gazelle-py"
     tag = os.environ["RELEASE_TAG"]
     if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
         raise ValueError("Expected a stable vX.Y.Z release tag")
