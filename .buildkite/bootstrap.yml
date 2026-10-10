@@ -1,0 +1,5 @@
+steps:
+  - label: "Upload CI pipeline"
+    command: "buildkite-agent pipeline upload .buildkite/pipeline.yml"
+    agents:
+      queue: oss

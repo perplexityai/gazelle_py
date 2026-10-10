@@ -1,0 +1,35 @@
+agents:
+  queue: oss
+
+steps:
+  - label: "bazel {{matrix}} test (linux-x86_64)"
+    key: bazel-test
+    command: "bash .buildkite/bazel.sh test"
+    matrix: ["9.0.0", "8.6.0"]
+    env:
+      USE_BAZEL_VERSION: "{{matrix}}"
+    timeout_in_minutes: 60
+    cache:
+      name: gazelle-py-bazel-tests
+      size: 40g
+      paths: ["/tmp/gazelle-py-ci"]
+    artifact_paths: "bazel-testlogs/**/test.log;bazel-testlogs/**/test.xml"
+
+  - label: "examples / bazel {{matrix}}"
+    key: examples
+    command: "bash .buildkite/bazel.sh examples"
+    matrix: ["9.0.0", "8.6.0"]
+    env:
+      USE_BAZEL_VERSION: "{{matrix}}"
+    timeout_in_minutes: 60
+    cache:
+      name: gazelle-py-bazel-examples
+      size: 40g
+      paths: ["/tmp/gazelle-py-ci"]
+    artifact_paths: "examples/*/bazel-testlogs/**/test.log;examples/*/bazel-testlogs/**/test.xml"
+
+  - label: "Verify commit hooks"
+    key: verify-hooks
+    if: build.pull_request.id != null
+    command: "bash .buildkite/verify-hooks.sh"
+    timeout_in_minutes: 10
