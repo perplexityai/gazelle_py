@@ -1,7 +1,7 @@
 caches:
   - name: bazel
     cache_key:
-      - gazelle-py-bazel-v1
+      - gazelle-py-bazel-v2
       - agent: pipeline
       - agent: os
       - agent: arch
@@ -10,7 +10,5 @@ caches:
         fallback_limit: true
       - env: BUILDKITE_COMMIT
     target_paths:
-      - /tmp/gazelle-py-ci/bin
-      - /tmp/gazelle-py-ci/bazelisk
       - /tmp/gazelle-py-ci/repository
       - /tmp/gazelle-py-ci/disk

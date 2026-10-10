@@ -1,0 +1,33 @@
+{
+  "save": {
+    "scopes": {
+      "pipeline": true,
+      "branch": true
+    }
+  },
+  "restore": {
+    "scopes": [
+      {
+        "pipeline": "$current",
+        "branch": "$current"
+      },
+      {
+        "pipeline": "$current",
+        "branch": "main"
+      }
+    ]
+  },
+  "rules": [
+    {
+      "name": "restore-own-branch-or-main",
+      "effect": "allow",
+      "action": "restore",
+      "when": "entry.pipeline == claims.pipeline_slug && (entry.branch == claims.build_branch || entry.branch == 'main')"
+    },
+    {
+      "name": "save-verified-branch",
+      "effect": "allow",
+      "action": "save"
+    }
+  ]
+}
