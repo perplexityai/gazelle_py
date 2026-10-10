@@ -102,3 +102,9 @@ steps:
     key: verify-hooks
     command: "bash .buildkite/verify-hooks.sh"
     timeout_in_minutes: 10
+
+notify:
+- github_commit_status:
+    context: release-ready/gazelle-py
+    blocked_builds_as_pending: true
+  if: build.branch == "main" && build.pull_request.id == null && build.tag == null

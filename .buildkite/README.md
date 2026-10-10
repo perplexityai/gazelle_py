@@ -69,3 +69,21 @@ bash -n .buildkite/bazel.sh .buildkite/verify-hooks.sh .buildkite/hooks/post-che
 For a cutover smoke test, open a docs-only PR with a Conventional Commit title.
 Confirm the GitHub webhook starts a native Buildkite build with both Bazel
 matrices and the PR title/commit check.
+
+
+## Releases
+
+GHA waits for `release-ready/gazelle-py` on the exact release tag commit. Only non-PR main builds publish that status, after the full BK pipeline finishes. Failed builds stop publication; missing/pending checks time out after 90 minutes. No new secrets or BK token permissions.
+
+The reusable GHA release workflow checks that its checkout still matches the verified SHA, packages the source archive, attests provenance, and publishes BCR. Its duplicate Bazel test run and Bazel caches are disabled. Existing runner exceptions remain on GHA.
+
+```mermaid
+flowchart TD
+  Main[Main commit] --> BK[BK full test pipeline]
+  BK --> Status[Main-only release-ready status]
+  Tag[Release tag] --> Gate[GHA checks exact SHA, main ancestry, BK success]
+  Status --> Gate
+  Gate --> Archive[GHA rechecks SHA and packages source]
+  Archive --> Provenance[GHA provenance]
+  Provenance --> BCR[GitHub release and BCR]
+```
