@@ -2,8 +2,8 @@
 set -euo pipefail
 
 case "${1:-}" in
-  test|examples|smoke) ;;
-  *) echo "Usage: $0 {test|examples|smoke}" >&2; exit 1 ;;
+  test|examples|setup) ;;
+  *) echo "Usage: $0 {test|examples|setup}" >&2; exit 1 ;;
 esac
 : "${USE_BAZEL_VERSION:?Set USE_BAZEL_VERSION}"
 
@@ -44,9 +44,8 @@ if [[ "$1" == test ]]; then
   exit
 fi
 
-if [[ "$1" == smoke ]]; then
-  bazel test //py:py_test
-  exit
+if [[ "$1" == setup ]]; then
+  return 0 2>/dev/null || exit 0
 fi
 
 for example in basic composite edge_cases file_mode project_mode naming_conventions; do

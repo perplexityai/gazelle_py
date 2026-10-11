@@ -1,0 +1,6 @@
+load("@gazelle//:def.bzl", "gazelle_binary")
+
+gazelle_binary(
+    name = "gazelle",
+    languages = ["//py"],
+)
