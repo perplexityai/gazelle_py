@@ -17,7 +17,11 @@ def identity(platform):
 
 
 def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    sha = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            sha.update(block)
+    return sha.hexdigest()
 
 
 def process(mode, directory, platform):
