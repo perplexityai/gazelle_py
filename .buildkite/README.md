@@ -1,10 +1,9 @@
 # Buildkite CI
 
-The native pipeline runs Linux tests, all six examples, Darwin/Windows target
-analysis, and PR title/commit checks on the `OSS` cluster's hosted `oss` queue
-(8 vCPUs, 32 GB RAM). macOS smoke uses `oss_darwin_arm64` (M4, 12 vCPUs, 56 GB RAM)
-and tests `//py:py_test` on main/merge-group builds, matching the GitHub Actions
-PR exclusion. Branch builds also run smoke so changes can be tested before merge.
+Linux tests/examples and target analysis run on `oss` (8 vCPUs, 32 GB RAM).
+One producer cross-builds Linux AMD64 and macOS ARM64 smoke executables per Bazel
+version. Smoke downloads and runs those artifacts on `oss` and
+`oss_darwin_arm64` (M4, 12 vCPUs, 56 GB RAM), including approved PR builds.
 Hook dependencies are installed on every build; titles/commits are checked on PRs.
 The post-checkout hook tests GitHub's PR merge ref, matching `actions/checkout`.
 It rejects stale merge refs that do not contain the expected PR head.
@@ -58,8 +57,8 @@ CodeQL default setup remains enabled. The native pipeline replaces `ci.yaml` and
    builds off; releases remain on GitHub Actions. Set blocked build statuses to
    Pending. Enable third-party fork builds only after installing this bootstrap.
 3. Require `buildkite/gazelle-py` from the Buildkite app in the `main` ruleset.
-   PRs run Linux tests/examples and commit validation. Main and merge groups also
-   run macOS smoke. Keep Release Please and module-release on GitHub Actions.
+   PRs, main and merge groups run Linux tests/examples, artifact smoke and commit
+   validation. Keep Release Please and module-release on GitHub Actions.
 
 The bootstrap must specify `queue: oss`: this cluster's `default` queue is
 self-hosted. Use isolated, credential-free agents for contributor PRs. Enable
