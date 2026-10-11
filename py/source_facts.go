@@ -1,6 +1,9 @@
 package py
 
-import "path/filepath"
+import (
+	"path"
+	"path/filepath"
+)
 
 // sourceFacts is the generation-facing view of parsed Python files in one
 // Bazel package. It keeps parser details local and exposes facts by
@@ -77,6 +80,9 @@ func (f *sourceFacts) resultFor(src string) (FileImports, bool) {
 	if relPath, ok := f.relBy[filepath.ToSlash(src)]; ok {
 		r, ok := f.results[relPath]
 		return r, ok
+	}
+	if r, ok := f.results[path.Join(filepath.ToSlash(f.rel), filepath.ToSlash(src))]; ok {
+		return r, true
 	}
 	r, ok := f.results[filepath.Join(f.rel, src)]
 	return r, ok

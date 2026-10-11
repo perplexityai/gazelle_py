@@ -26,17 +26,18 @@ def digest(path):
 
 def process(mode, directory, platform):
     directory = pathlib.Path(directory)
+    files = tuple(name + ".exe" for name in FILES) if platform == "windows-amd64" else FILES
     expected = identity(platform)
     if mode == "pack":
-        expected["files"] = {name: digest(directory / name) for name in FILES}
+        expected["files"] = {name: digest(directory / name) for name in files}
         (directory / "manifest.json").write_text(json.dumps(expected, sort_keys=True) + "\n")
     elif mode == "verify":
         manifest = json.loads((directory / "manifest.json").read_text())
         if any(manifest.get(key) != value for key, value in expected.items()):
             raise ValueError("Artifact identity does not match this build")
-        if set(manifest.get("files", {})) != set(FILES):
+        if set(manifest.get("files", {})) != set(files):
             raise ValueError("Unexpected artifact files")
-        for name in FILES:
+        for name in files:
             path = directory / name
             if path.is_symlink() or not path.is_file() or digest(path) != manifest["files"][name]:
                 raise ValueError("Artifact checksum mismatch: " + name)
