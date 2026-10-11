@@ -108,6 +108,26 @@ steps:
     USE_BAZEL_VERSION: 8.6.0
     SMOKE_PRODUCER_STEP: smoke-build-8-6-0
   timeout_in_minutes: 15
+- label: Artifact smoke / Windows AMD64 / Bazel 9.0.0
+  key: artifact-smoke-windows-amd64-9-0-0
+  depends_on: smoke-build-9-0-0
+  agents:
+    queue: oss_win_amd64
+  command: powershell -NoProfile -ExecutionPolicy Bypass -File .buildkite/smoke-windows.ps1
+  timeout_in_minutes: 15
+  env:
+    USE_BAZEL_VERSION: 9.0.0
+    SMOKE_PRODUCER_STEP: smoke-build-9-0-0
+- label: Artifact smoke / Windows AMD64 / Bazel 8.6.0
+  key: artifact-smoke-windows-amd64-8-6-0
+  depends_on: smoke-build-8-6-0
+  agents:
+    queue: oss_win_amd64
+  command: powershell -NoProfile -ExecutionPolicy Bypass -File .buildkite/smoke-windows.ps1
+  timeout_in_minutes: 15
+  env:
+    USE_BAZEL_VERSION: 8.6.0
+    SMOKE_PRODUCER_STEP: smoke-build-8-6-0
 notify:
 - github_commit_status:
     context: release-ready/gazelle-py

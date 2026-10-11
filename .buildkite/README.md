@@ -100,7 +100,7 @@ flowchart TD
 
 ## Artifact smoke
 
-For each Bazel version, one Linux producer links Linux AMD64 and macOS ARM64 Gazelle binaries and unit-test executables. Both smoke jobs download those exact executables, run the compiled unit tests, then generate and recheck a BUILD file from a small language fixture. No Bazel, Cargo, Go compiler, or cache restoration in smoke. Native module/consumer tests remain separate. Other cross-platform analysis checks remain analysis checks.
+For each Bazel version, one Linux producer links Linux AMD64, macOS ARM64, and Windows AMD64 Gazelle binaries and unit-test executables. All three smoke jobs download those exact executables, run the compiled unit tests, then generate and recheck a BUILD file from a small language fixture. No Bazel, Cargo, Go compiler, or cache restoration in smoke. Native module/consumer tests remain separate. Other cross-platform analysis checks remain analysis checks.
 
 Downloads are scoped to the producer step in the same build. Manifest checks build ID, pipeline, commit, Bazel version, platform, and SHA-256 before execution. Missing or mismatched artifacts fail; no rebuild fallback. Artifacts are transport, not shared writable caches. Smoke runs on PRs too, after the existing fork approval gate.
 
@@ -108,6 +108,10 @@ Downloads are scoped to the producer step in the same build. Manifest checks bui
 flowchart LR
   P[Linux producer] --> A[Build-scoped binaries and checksums]
   A --> M[macOS artifact smoke]
+  A --> W[Windows artifact smoke]
+  W --> S
   N[Native tests] --> S[Pipeline status]
   M --> S
 ```
+
+Windows artifact smoke runs on `oss_win_amd64` using PowerShell. It pins the same PR merge commit as the Linux producer, verifies the manifest and hashes, then runs compiled unit tests and a generation fixture. No Windows compilation or shared cache.

@@ -28,6 +28,14 @@ class ArtifactTests(unittest.TestCase):
     def verify(self):
         artifacts.process("verify", self.directory, "darwin-arm64")
 
+    def test_windows_artifacts(self):
+        for name in artifacts.FILES:
+            (self.directory / name).rename(self.directory / (name + ".exe"))
+        artifacts.process("pack", self.directory, "windows-amd64")
+        artifacts.process("verify", self.directory, "windows-amd64")
+        with self.assertRaisesRegex(ValueError, "identity"):
+            self.verify()
+
     def test_valid(self):
         self.verify()
         for name in artifacts.FILES:
