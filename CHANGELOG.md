@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.16](https://github.com/perplexityai/gazelle_py/compare/v0.8.15...v0.8.16) (2026-10-11)
+
+
+### Bug Fixes
+
+* **ci:** smoke-test artifacts from one cross-build ([#81](https://github.com/perplexityai/gazelle_py/issues/81)) ([d2df3c0](https://github.com/perplexityai/gazelle_py/commit/d2df3c03a8242c90a9223ef3ed86ef0996fc7543))
+
 ## 0.8.15 (2026-09-20)
 
 ## What's Changed
