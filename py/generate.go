@@ -845,13 +845,15 @@ func existingBinarySources(ownership *packageSourceOwnership, file *rule.File) m
 // pkgRelativePath drops the package prefix from a workspace-relative path.
 // "apps/server/utils/x.py" within package "apps/server" → "utils/x.py".
 func pkgRelativePath(workspaceRel, pkg string) string {
+	workspaceRel = filepath.ToSlash(workspaceRel)
+	pkg = filepath.ToSlash(pkg)
 	if pkg == "" {
 		return workspaceRel
 	}
 	if workspaceRel == pkg {
 		return filepath.Base(workspaceRel)
 	}
-	prefix := pkg + string(filepath.Separator)
+	prefix := pkg + "/"
 	if strings.HasPrefix(workspaceRel, prefix) {
 		return strings.TrimPrefix(workspaceRel, prefix)
 	}

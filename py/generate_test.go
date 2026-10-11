@@ -2,6 +2,7 @@ package py
 
 import (
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -196,6 +197,8 @@ func TestPkgRelativePath(t *testing.T) {
 	}{
 		{"apps/server/main.py", "apps/server", "main.py"},
 		{"apps/server/utils/h.py", "apps/server", "utils/h.py"},
+		{filepath.Join("apps", "server", "utils", "h.py"), "apps/server", "utils/h.py"},
+		{"apps/server/utils/h.py", filepath.Join("apps", "server"), "utils/h.py"},
 		{"main.py", "", "main.py"},
 		// Defensive: when the spec doesn't share the package prefix (shouldn't
 		// happen in practice), we return the workspace-relative path unchanged
@@ -2557,5 +2560,22 @@ func TestCollectSrcs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(tests, wantTests) {
 		t.Errorf("tests = %v, want %v", tests, wantTests)
+	}
+}
+
+func TestSourceFactsNativeAndBazelPaths(t *testing.T) {
+	pkg := filepath.Join("apps", "server")
+	source := filepath.Join("sub", "__init__.py")
+	for _, workspace := range []string{"apps/server/sub/__init__.py", filepath.Join(pkg, source)} {
+		results := map[string]FileImports{workspace: {IsEmpty: true}}
+		for _, specs := range [][]FileSpec{nil, {{RelPath: workspace}}} {
+			facts := newSourceFacts(pkg, specs, results)
+			if !facts.allEmptyInits([]string{source}) {
+				t.Errorf("empty init lookup failed: workspace=%q specs=%v", workspace, specs)
+			}
+			if len(specs) > 0 && !facts.contains("sub/__init__.py") {
+				t.Errorf("Bazel source lookup failed for %q", workspace)
+			}
+		}
 	}
 }
