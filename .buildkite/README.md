@@ -98,3 +98,17 @@ flowchart TD
   Archive --> Provenance[GHA provenance]
   Provenance --> BCR[GitHub release and BCR]
 ```
+
+## Artifact smoke
+
+For each Bazel version, one Linux producer links Linux AMD64 and macOS ARM64 Gazelle binaries and unit-test executables. Both smoke jobs download those exact executables, run the compiled unit tests, then generate and recheck a BUILD file from a small language fixture. No Bazel, Cargo, Go compiler, or cache restoration in smoke. Native module/consumer tests remain separate. Other cross-platform analysis checks remain analysis checks.
+
+Downloads are scoped to the producer step in the same build. Manifest checks build ID, pipeline, commit, Bazel version, platform, and SHA-256 before execution. Missing or mismatched artifacts fail; no rebuild fallback. Artifacts are transport, not shared writable caches. Smoke runs on PRs too, after the existing fork approval gate.
+
+```mermaid
+flowchart LR
+  P[Linux producer] --> A[Build-scoped binaries and checksums]
+  A --> M[macOS artifact smoke]
+  N[Native tests] --> S[Pipeline status]
+  M --> S
+```
