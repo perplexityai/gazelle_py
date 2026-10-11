@@ -1,0 +1,1 @@
+exports_files(["rules_go_windows_clang.patch"])

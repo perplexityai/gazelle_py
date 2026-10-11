@@ -115,3 +115,5 @@ flowchart LR
 ```
 
 Windows artifact smoke runs on `oss_win_amd64` using PowerShell. It pins the same PR merge commit as the Linux producer, verifies the manifest and hashes, then runs compiled unit tests and a generation fixture. No Windows compilation or shared cache.
+
+Root rules_go override removes GCC-only `-mthreads` from Windows clang invocations through an explicit action environment. Linux/macOS actions are unchanged.
