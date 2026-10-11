@@ -1,13 +1,13 @@
 --- a/go/private/context.bzl
 +++ b/go/private/context.bzl
-@@ -598,6 +598,10 @@
+@@ -657,6 +657,10 @@
+     if cgo_context_info:
          env.update(cgo_context_info.env)
-         cc_toolchain_files = cgo_context_info.cc_toolchain_files
          cgo_tools = cgo_context_info.cgo_tools
 +        # Go adds GCC-only -mthreads; clang's MinGW driver rejects it.
 +        # Explicit action env keeps the Windows-only edit in the cache key.
 +        if mode.goos == "windows":
 +            env["CCC_OVERRIDE_OPTIONS"] = "#x-mthreads"
-     else:
-         cc_toolchain_files = depset()
-         cgo_tools = None
+         cc_toolchain_files = depset(transitive = [
+             cgo_context_info.cc_toolchain_files,
+             _cc_runtime_libs_for_mode(mode, cgo_tools),
