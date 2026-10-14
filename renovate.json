@@ -1,0 +1,76 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "dependencyDashboard": true,
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "automerge": false,
+  "prConcurrentLimit": 5,
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bazel-*/**",
+    "**/testdata/**",
+    "tests/**",
+    "bcr/**",
+    "bcr_test/**",
+    "examples/**",
+    "integration/**"
+  ],
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["engines"],
+      "enabled": false
+    },
+    {
+      "matchPackageNames": ["@commitlint/cli", "@commitlint/types"],
+      "groupName": "commitlint"
+    },
+    {
+      "description": "BCR provenance requires version tags on reusable release workflows",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["bazel-contrib/.github", "bazel-contrib/publish-to-bcr"],
+      "pinDigests": false
+    },
+    {
+      "description": "Repository CI regenerates Bazel lockfiles; Mend cannot execute Bazel",
+      "matchManagers": ["bazel-module", "bazelisk"],
+      "skipArtifactsUpdate": true
+    },
+    {
+      "description": "Keep Ruff parser, AST, and text ranges on the same revision",
+      "matchManagers": ["cargo"],
+      "matchDepNames": ["ruff_python_ast", "ruff_python_parser", "ruff_text_size"],
+      "groupName": "Ruff"
+    },
+    {
+      "description": "Prost runtime must match rules_rs generated code",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["prost", "prost-types"],
+      "enabled": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^MODULE\\.bazel$/"],
+      "matchStrings": ["go_sdk\\.download\\(version\\s*=\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "go",
+      "datasourceTemplate": "golang-version"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^MODULE\\.bazel$/"],
+      "matchStrings": ["toolchains\\.toolchain\\([^)]*version\\s*=\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "rust",
+      "datasourceTemplate": "rust-version"
+    }
+  ]
+}
