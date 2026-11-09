@@ -160,6 +160,7 @@ jobs:
         name: smoke-9.0.0
         path: ".ci-artifacts/smoke/9.0.0"
         if-no-files-found: error
+        include-hidden-files: true
   artifact-smoke-oss-9-0-0:
     name: Artifact smoke / Linux AMD64 / Bazel 9.0.0
     runs-on: ubuntu-24.04-16core
@@ -226,6 +227,7 @@ jobs:
         name: smoke-8.6.0
         path: ".ci-artifacts/smoke/8.6.0"
         if-no-files-found: error
+        include-hidden-files: true
   artifact-smoke-oss-8-6-0:
     name: Artifact smoke / Linux AMD64 / Bazel 8.6.0
     runs-on: ubuntu-24.04-16core
