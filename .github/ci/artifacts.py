@@ -11,8 +11,8 @@ FILES = ("gazelle", "unit-test")
 
 def identity(platform):
     return {key: os.environ[env] for key, env in (
-        ("commit", "BUILDKITE_COMMIT"), ("build", "BUILDKITE_BUILD_ID"),
-        ("pipeline", "BUILDKITE_PIPELINE_SLUG"), ("bazel", "USE_BAZEL_VERSION"),
+        ("commit", "GITHUB_SHA"), ("build", "CI_RUN_ID"),
+        ("pipeline", "GITHUB_REPOSITORY"), ("bazel", "USE_BAZEL_VERSION"),
     )} | {"platform": platform}
 
 

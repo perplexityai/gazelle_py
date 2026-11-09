@@ -33,7 +33,9 @@ export BAZELISK_HOME="$cache_dir/bazelisk"
 bazel() {
   local command=$1
   shift
-  "$bazelisk" "$command" \
+  local contents_cache=()
+  if [[ "${USE_BAZEL_VERSION%%.*}" -ge 9 ]]; then contents_cache=(--repo_contents_cache=); fi
+  "$bazelisk" "$command" "${contents_cache[@]}" \
     --repository_cache="$cache_dir/repository" \
     --disk_cache="$cache_dir/disk/$USE_BAZEL_VERSION" \
     "$@"
