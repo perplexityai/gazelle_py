@@ -3,13 +3,14 @@ name: Release gate tests
 on:
   pull_request:
     paths:
-      - .github/scripts/*buildkite-release-gate.py
+      - .github/scripts/*gha-release-gate.py
       - .github/workflows/module_release.yaml
       - .github/workflows/release-gate-test.yml
-      - .buildkite/pipeline.yml
+      - .github/ci/pipeline.yml
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -17,4 +18,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - run: python3 .github/scripts/test-buildkite-release-gate.py
+      - run: python3 .github/scripts/test-gha-release-gate.py

@@ -1,5 +1,4 @@
 . "$PSScriptRoot/windows-artifacts.ps1"
-Set-SmokeCommit
 $work = Join-Path $env:TEMP ([Guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Path $work | Out-Null
 try {

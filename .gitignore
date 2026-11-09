@@ -4,3 +4,5 @@ MODULE.bazel.lock
 
 node_modules/
 target/
+
+.ci-artifacts/

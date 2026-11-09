@@ -1,77 +1,56 @@
+---
 name: module-release
-
-# Releases the `gazelle_py` Bazel module to GitHub Releases and submits it
-# to the Bazel Central Registry.
-#
-# Tag scheme: `vX.Y.Z`.
-#
-# The release uses bazel-contrib's reusable workflows by tag. BCR validates
-# the workflow refs in the generated attestations, and bare SHAs fail SLSA
-# verification.
-#
-# Prerequisites for the BCR submission to succeed:
-#   1. A fork of github.com/bazelbuild/bazel-central-registry under the org
-#      (matches `registry_fork` below).
-#   2. The `bazel-contrib/publish-to-bcr` GitHub App installed on the fork.
-#   3. Repo secret `BCR_PUBLISH_TOKEN` — a classic PAT (fine-grained PATs
-#      cannot open PRs against public repos). See
-#      https://github.com/bazel-contrib/publish-to-bcr#a-note-on-release-automation
-
-on:
+'on':
   push:
     tags:
-      - 'v*.*.*'
+    - v*.*.*
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g. v0.1.0). Must already exist.'
+        description: Tag to release (e.g. v0.1.0). Must already exist.
         type: string
         required: true
-
 permissions:
   actions: read
   attestations: write
   contents: write
   id-token: write
-
 jobs:
-  buildkite:
-    name: Verify release commit on Buildkite
+  gha:
+    name: Verify release commit on GitHub Actions
     runs-on: ubuntu-latest
     timeout-minutes: 95
     permissions:
       contents: read
-      statuses: read
+      actions: read
     outputs:
-      commit: ${{ steps.gate.outputs.commit }}
+      commit: "${{ steps.gate.outputs.commit }}"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: ${{ inputs.tag || github.ref_name }}
-          fetch-depth: 0
-      - name: Wait for exact main Buildkite build
-        id: gate
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: python3 .github/scripts/buildkite-release-gate.py
-
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      with:
+        ref: "${{ inputs.tag || github.ref_name }}"
+        fetch-depth: 0
+    - name: Wait for exact main GitHub Actions build
+      id: gate
+      env:
+        GH_TOKEN: "${{ github.token }}"
+        RELEASE_TAG: "${{ inputs.tag || github.ref_name }}"
+      run: python3 .github/scripts/gha-release-gate.py
   release:
-    needs: buildkite
+    needs: gha
     uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.4.0
     with:
-      # Recheck the checkout SHA; the reusable workflow appends cache flags.
-      bazel_test_command: python3 .github/scripts/buildkite-release-gate.py --expected-commit ${{ needs.buildkite.outputs.commit }}
+      bazel_test_command: python3 .github/scripts/gha-release-gate.py --expected-commit
+        ${{ needs.gha.outputs.commit }}
       mount_bazel_caches: false
       release_files: gazelle_py-*.tar.gz
       prerelease: false
-      tag_name: ${{ inputs.tag || github.ref_name }}
-
+      tag_name: "${{ inputs.tag || github.ref_name }}"
   publish-to-bcr:
     needs: release
     uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v1.4.2
     with:
-      tag_name: ${{ inputs.tag || github.ref_name }}
+      tag_name: "${{ inputs.tag || github.ref_name }}"
       registry_fork: perplexityai/bazel-central-registry
       draft: false
     permissions:
@@ -80,4 +59,4 @@ jobs:
       contents: write
       id-token: write
     secrets:
-      publish_token: ${{ secrets.BCR_PUBLISH_TOKEN }}
+      publish_token: "${{ secrets.BCR_PUBLISH_TOKEN }}"

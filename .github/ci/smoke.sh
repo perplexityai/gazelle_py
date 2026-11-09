@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 : "${USE_BAZEL_VERSION:?}"
-: "${SMOKE_PRODUCER_STEP:?}"
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) platform=linux-amd64 ;;
   Darwin-arm64) platform=darwin-arm64 ;;
@@ -9,11 +8,10 @@ case "$(uname -s)-$(uname -m)" in
 esac
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-artifact=".buildkite-artifacts/smoke/$USE_BAZEL_VERSION/$platform"
-buildkite-agent artifact download "$artifact/*" "$work" \
-  --build "${BUILDKITE_BUILD_ID:?}" --step "$SMOKE_PRODUCER_STEP"
+artifact=".ci-artifacts/smoke/$USE_BAZEL_VERSION/$platform"
+cp -R "$PWD/.ci-artifacts" "$work/"
 directory="$work/$artifact"
-python3 .buildkite/artifacts.py verify "$directory" "$platform"
+python3 .github/ci/artifacts.py verify "$directory" "$platform"
 export TEST_TMPDIR="$work/tests"
 mkdir -p "$TEST_TMPDIR"
 "$directory/unit-test" -test.v

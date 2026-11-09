@@ -1,32 +1,19 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Set-SmokeCommit {
-    if ($env:BUILDKITE_PULL_REQUEST -and $env:BUILDKITE_PULL_REQUEST -ne 'false') {
-        $merge = & buildkite-agent meta-data get github-pr-merge
-        if ($LASTEXITCODE -ne 0 -or $merge -cnotmatch '^[0-9a-f]{40}$') { throw 'Missing pinned PR merge SHA' }
-        & git fetch --no-tags origin $merge | Out-Host
-        if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch pinned PR merge' }
-        $head = & git rev-parse 'FETCH_HEAD^2'
-        if ($LASTEXITCODE -ne 0 -or $head -cne $env:BUILDKITE_COMMIT) { throw 'Pinned merge does not contain PR head' }
-        & git checkout --detach FETCH_HEAD | Out-Host
-        if ($LASTEXITCODE -ne 0) { throw 'Cannot check out pinned PR merge' }
-    }
-}
 
 function Get-SmokeArtifacts {
     param([string]$Work, [string[]]$Files)
-    foreach ($name in 'BUILDKITE_BUILD_ID', 'BUILDKITE_COMMIT', 'BUILDKITE_PIPELINE_SLUG', 'USE_BAZEL_VERSION', 'SMOKE_PRODUCER_STEP') {
+    foreach ($name in 'CI_RUN_ID', 'GITHUB_SHA', 'GITHUB_REPOSITORY', 'USE_BAZEL_VERSION') {
         if (-not [Environment]::GetEnvironmentVariable($name)) { throw "Missing $name" }
     }
-    $artifact = ".buildkite-artifacts/smoke/$env:USE_BAZEL_VERSION/windows-amd64"
-    & buildkite-agent artifact download "$artifact/*" $Work --build $env:BUILDKITE_BUILD_ID --step $env:SMOKE_PRODUCER_STEP | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw 'Artifact download failed' }
+    $artifact = ".ci-artifacts/smoke/$env:USE_BAZEL_VERSION/windows-amd64"
+    Copy-Item -Recurse -LiteralPath (Join-Path $PWD ".ci-artifacts") -Destination $Work
     $directory = Join-Path $Work $artifact
     $marker = Get-Item -LiteralPath (Join-Path $directory 'manifest.json')
     if ($marker.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Unsafe artifact manifest' }
     $manifest = Get-Content -Raw -LiteralPath $marker.FullName | ConvertFrom-Json
-    $expected = @{ commit = $env:BUILDKITE_COMMIT; build = $env:BUILDKITE_BUILD_ID; pipeline = $env:BUILDKITE_PIPELINE_SLUG; bazel = $env:USE_BAZEL_VERSION; platform = 'windows-amd64' }
+    $expected = @{ commit = $env:GITHUB_SHA; build = $env:CI_RUN_ID; pipeline = $env:GITHUB_REPOSITORY; bazel = $env:USE_BAZEL_VERSION; platform = 'windows-amd64' }
     foreach ($key in $expected.Keys) {
         if ($manifest.$key -cne $expected[$key]) { throw "Artifact identity mismatch: $key" }
     }

@@ -16,8 +16,8 @@ class ArtifactTests(unittest.TestCase):
         self.work = tempfile.TemporaryDirectory()
         self.addCleanup(self.work.cleanup)
         self.directory = pathlib.Path(self.work.name)
-        environment = dict(BUILDKITE_COMMIT="a" * 40, BUILDKITE_BUILD_ID="build-1",
-                           BUILDKITE_PIPELINE_SLUG="pipeline", USE_BAZEL_VERSION="9.0.0")
+        environment = dict(GITHUB_SHA="a" * 40, CI_RUN_ID="build-1",
+                           GITHUB_REPOSITORY="pipeline", USE_BAZEL_VERSION="9.0.0")
         self.environment = patch.dict(os.environ, environment)
         self.environment.start()
         self.addCleanup(self.environment.stop)
@@ -42,7 +42,7 @@ class ArtifactTests(unittest.TestCase):
             self.assertTrue(os.access(self.directory / name, os.X_OK))
 
     def test_identity_mismatch(self):
-        for key in ("BUILDKITE_COMMIT", "BUILDKITE_BUILD_ID", "BUILDKITE_PIPELINE_SLUG", "USE_BAZEL_VERSION"):
+        for key in ("GITHUB_SHA", "CI_RUN_ID", "GITHUB_REPOSITORY", "USE_BAZEL_VERSION"):
             with self.subTest(key=key), patch.dict(os.environ, {key: "different"}):
                 with self.assertRaisesRegex(ValueError, "identity"):
                     self.verify()
