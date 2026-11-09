@@ -58,7 +58,7 @@ jobs:
 
   release:
     needs: buildkite
-    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.4.0
+    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.7.0
     with:
       # Recheck the checkout SHA; the reusable workflow appends cache flags.
       bazel_test_command: python3 .github/scripts/buildkite-release-gate.py --expected-commit ${{ needs.buildkite.outputs.commit }}
